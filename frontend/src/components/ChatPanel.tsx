@@ -9,6 +9,7 @@ export interface ChatMessage {
 interface ChatPanelProps {
   messages: ChatMessage[];
   loading: boolean;
+  loadingSince: number | null;
   onSend: (query: string) => void;
 }
 
@@ -18,19 +19,34 @@ const EXAMPLE_QUERIES = [
   "Are there any cyclone alerts near Visakhapatnam?",
 ];
 
-export default function ChatPanel({ messages, loading, onSend }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
+  const [elapsed, setElapsed] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  // Elapsed-seconds ticker so slow LLM calls show visible progress.
+  useEffect(() => {
+    if (!loading || loadingSince === null) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(Math.floor((Date.now() - loadingSince) / 1000));
+    const id = setInterval(
+      () => setElapsed(Math.floor((Date.now() - loadingSince) / 1000)),
+      1000,
+    );
+    return () => clearInterval(id);
+  }, [loading, loadingSince]);
+
   function submit(query: string) {
     const q = query.trim();
-    if (!q || loading) return;
+    if (!q) return;
     setDraft("");
-    onSend(q);
+    onSend(q); // sending while loading cancels the in-flight query (see App)
   }
 
   return (
@@ -51,7 +67,11 @@ export default function ChatPanel({ messages, loading, onSend }: ChatPanelProps)
             )}
           </div>
         ))}
-        {loading && <div className="bubble bubble-assistant typing">Varuna is reasoning…</div>}
+        {loading && (
+          <div className="bubble bubble-assistant typing">
+            Varuna is reasoning… ({elapsed}s)
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 
@@ -61,7 +81,6 @@ export default function ChatPanel({ messages, loading, onSend }: ChatPanelProps)
             key={q}
             type="button"
             className="chip"
-            disabled={loading}
             onClick={() => submit(q)}
           >
             {q}
@@ -79,12 +98,13 @@ export default function ChatPanel({ messages, loading, onSend }: ChatPanelProps)
         <input
           type="text"
           value={draft}
-          disabled={loading}
-          placeholder="Ask about fishing zones, safety, weather…"
+          placeholder={
+            loading ? "Type a new question to supersede this one…" : "Ask about fishing zones, safety, weather…"
+          }
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Your question"
         />
-        <button type="submit" disabled={loading || !draft.trim()}>
+        <button type="submit" disabled={!draft.trim()}>
           Send
         </button>
       </form>

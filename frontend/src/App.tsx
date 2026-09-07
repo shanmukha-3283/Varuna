@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel.tsx";
 import MapView from "./components/MapView.tsx";
 import ExecutionTrace from "./components/ExecutionTrace.tsx";
@@ -16,14 +16,22 @@ function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
   const [latest, setLatest] = useState<QueryState | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingSince, setLoadingSince] = useState<number | null>(null);
+  const inFlight = useRef<AbortController | null>(null);
 
   async function handleSend(userQuery: string) {
     const q = userQuery.trim();
-    if (!q || loading) return;
+    if (!q) return;
+    // Cancel any in-flight query so a stale response can't overwrite fresh state.
+    inFlight.current?.abort();
+    const controller = new AbortController();
+    inFlight.current = controller;
     setMessages((m) => [...m, { role: "user", text: q }]);
     setLoading(true);
+    setLoadingSince(Date.now());
     try {
-      const result = await queryBackend(q);
+      const result = await queryBackend(q, controller.signal);
+      if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
       setMessages((m) => [
         ...m,
@@ -34,6 +42,7 @@ function App() {
         },
       ]);
     } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") return; // user re-sent; stay silent
       setMessages((m) => [
         ...m,
         {
@@ -42,7 +51,11 @@ function App() {
         },
       ]);
     } finally {
-      setLoading(false);
+      if (inFlight.current === controller) {
+        inFlight.current = null;
+        setLoading(false);
+        setLoadingSince(null);
+      }
     }
   }
 
@@ -54,7 +67,7 @@ function App() {
       </header>
 
       <main className="app-main">
-        <ChatPanel messages={messages} loading={loading} onSend={handleSend} />
+        <ChatPanel messages={messages} loading={loading} loadingSince={loadingSince} onSend={handleSend} />
         <div className="side">
           <MapView
             region={latest?.region ?? DEFAULT_REGION}

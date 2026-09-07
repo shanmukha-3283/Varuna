@@ -126,12 +126,42 @@ async function generateWithOllama(
     marineData: input.marineData ?? null,
     weatherRisk: input.weatherRisk ?? null,
   };
+  const marine = input.marineData;
+  const weather = input.weatherRisk;
+  // Explicit key facts: small models ground better on a flat fact list
+  // than by extracting numbers from nested JSON. Instruct verbatim citation.
+  const facts: string[] = [`Region: ${input.region.name}`];
+  if (marine && marine.pfzZones.length > 0) {
+    const n = marine.pfzZones[0];
+    facts.push(
+      `Nearest PFZ: EXACTLY ${n.distanceKm} km away at (${n.lat}, ${n.lon}) — cite this number verbatim, do not round or alter it`,
+    );
+    if (marine.sstCelsius !== undefined)
+      facts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
+  }
+  if (weather) {
+    facts.push(
+      `Verdict: ${weather.verdict} — waves EXACTLY ${weather.waveHeightM} m, wind EXACTLY ${weather.windSpeedKmh} km/h — cite verbatim`,
+    );
+    facts.push(
+      weather.alerts.length > 0
+        ? `Active alerts: ${weather.alerts.join(", ")}`
+        : "Active alerts: none",
+    );
+  }
   const prompt =
     "You are Varuna, a marine safety assistant speaking directly to a fisherman. " +
     "Given this marine data and weather risk JSON, write a 2-3 sentence conversational " +
     "safety answer for a fisherman, citing the specific numbers " +
     "(PFZ distance, wave height, wind speed, sea surface temperature). " +
+    "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
+    "never as avoidance (never say 'stay away/clear/at least X km from the zone'). " +
+    "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
+    "unsafe = stay ashore. " +
+    "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce them verbatim, " +
+    "never round, estimate, or substitute a different zone's numbers. " +
     "Plain text only, no markdown, no preamble.\n\n" +
+    `KEY FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}\n\n` +
     `JSON: ${JSON.stringify(context)}`;
 
   try {

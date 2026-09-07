@@ -103,21 +103,47 @@ function mockResponse(userQuery: string): QueryState {
   };
 }
 
-export async function queryBackend(userQuery: string): Promise<QueryState> {
+export async function queryBackend(
+  userQuery: string,
+  outerSignal?: AbortSignal,
+): Promise<QueryState> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 600));
     return mockResponse(userQuery);
   }
-  const res = await fetch(`${API_BASE}/api/query`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userQuery }),
-  });
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as {
-      error?: string;
-    } | null;
-    throw new Error(body?.error || `Backend returned ${res.status}`);
+  // Generous timeout: the graph makes 2 Ollama calls (intent + synthesis),
+  // and a cold model can take 60-90s. Caller may also cancel via outerSignal
+  // (e.g. user sends a new query) — that surfaces as a "cancelled" error.
+  const QUERY_TIMEOUT_MS = 120_000;
+  if (outerSignal?.aborted) throw new Error("cancelled"); // already superseded
+  const controller = new AbortController();
+  const onOuterAbort = () => controller.abort();
+  outerSignal?.addEventListener("abort", onOuterAbort);
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API_BASE}/api/query`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userQuery }),
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as {
+        error?: string;
+      } | null;
+      throw new Error(body?.error || `Backend returned ${res.status}`);
+    }
+    return (await res.json()) as QueryState;
+  } catch (err) {
+    if (controller.signal.aborted) {
+      if (outerSignal?.aborted) throw new Error("cancelled");
+      throw new Error(
+        "Query timed out after 120s — Ollama may be cold-starting. Please retry once.",
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    outerSignal?.removeEventListener("abort", onOuterAbort);
   }
-  return (await res.json()) as QueryState;
 }
