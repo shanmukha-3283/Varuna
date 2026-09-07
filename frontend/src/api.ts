@@ -50,8 +50,8 @@ export interface QueryState {
 
 export const API_BASE = "http://localhost:3000";
 
-// Hour 22: set to false to call the real backend.
-const USE_MOCK = true;
+// Hour 14: backend is live — use the real call. (Mock kept below for offline UI work.)
+const USE_MOCK = false;
 
 function mockResponse(userQuery: string): QueryState {
   const now = new Date().toISOString();
