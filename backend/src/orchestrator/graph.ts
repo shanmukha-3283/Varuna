@@ -1,11 +1,9 @@
 import { StateGraph, Annotation, END } from "@langchain/langgraph";
 import type { QueryState } from "../types.ts";
 import { parseIntent } from "./intentParser.ts";
-import { getMarineData, getWeatherRisk } from "./stubs.ts";
+import { getMarineData } from "../agents/marineData.ts";
+import { getWeatherRisk } from "../agents/weatherRisk.ts";
 import { synthesizeResponse } from "../synthesis/synthesizeResponse.ts";
-// TODO Hour14-B: swap remaining stubs when Laptop B lands:
-// import { getMarineData } from "../agents/marineData.ts";
-// import { getWeatherRisk } from "../agents/weatherRisk.ts";
 
 const GraphState = Annotation.Root({
   userQuery: Annotation<string>,
