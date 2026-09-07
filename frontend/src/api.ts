@@ -12,7 +12,7 @@ export interface MapMarker {
   lat: number;
   lon: number;
   label: string;
-  type: string; // "pfz" (green) | "hazard" (red)
+  type: string; // "pfz" (green) | "hazard" (red) | "route" (purple)
 }
 
 export interface TraceEntry {
@@ -22,6 +22,7 @@ export interface TraceEntry {
 }
 
 export interface QueryState {
+  chatHistory?: { role: string; text: string }[];
   userQuery: string;
   region: Region;
   timestamp: string;
@@ -40,6 +41,17 @@ export interface QueryState {
     alerts: string[];
     verdict: "safe" | "caution" | "unsafe";
     reasoning: string;
+  };
+  geofenceAlerts?: {
+    zoneName: string;
+    alertLevel: "warning" | "danger" | "info";
+    message: string;
+  }[];
+  routeOptimization?: {
+    waypoints: { lat: number; lon: number }[];
+    distanceKm: number;
+    estTimeHours: number;
+    message: string;
   };
   executionTrace: TraceEntry[];
   finalResponse?: {
@@ -107,6 +119,7 @@ function mockResponse(userQuery: string): QueryState {
 
 export async function queryBackend(
   userQuery: string,
+  chatHistory: { role: string; text: string }[] = [],
   outerSignal?: AbortSignal,
 ): Promise<QueryState> {
   if (USE_MOCK) {
@@ -126,7 +139,7 @@ export async function queryBackend(
     const res = await fetch(`${API_BASE}/api/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userQuery }),
+      body: JSON.stringify({ userQuery, chatHistory }),
       signal: controller.signal,
     });
     if (!res.ok) {

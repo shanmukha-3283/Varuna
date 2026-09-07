@@ -5,6 +5,7 @@ import type { QueryState } from "../types.ts";
 
 const mockState = {
   region: { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  language: "English",
   intents: ["pfz_lookup", "safety_check"],
   marineData: {
     pfzZones: [

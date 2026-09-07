@@ -3,16 +3,23 @@ import type { QueryState } from "../types.ts";
 import { parseIntent } from "./intentParser.ts";
 import { getMarineData } from "../agents/marineData.ts";
 import { getWeatherRisk } from "../agents/weatherRisk.ts";
+import { checkGeofence } from "../agents/geofenceAgent.ts";
+import { optimizeRoute } from "../agents/routeAgent.ts";
 import { synthesizeResponse } from "../synthesis/synthesizeResponse.ts";
+import { detectLanguage, translateToEnglish } from "../services/translation.ts";
 
 const GraphState = Annotation.Root({
+  chatHistory: Annotation<QueryState["chatHistory"]>,
   userQuery: Annotation<string>,
+  originalQuery: Annotation<string | undefined>,
   region: Annotation<QueryState["region"]>,
   timestamp: Annotation<string>,
   intents: Annotation<string[]>,
   language: Annotation<string>,
   marineData: Annotation<QueryState["marineData"] | undefined>,
   weatherRisk: Annotation<QueryState["weatherRisk"] | undefined>,
+  geofenceAlerts: Annotation<QueryState["geofenceAlerts"] | undefined>,
+  routeOptimization: Annotation<QueryState["routeOptimization"] | undefined>,
   executionTrace: Annotation<QueryState["executionTrace"]>,
   finalResponse: Annotation<QueryState["finalResponse"] | undefined>,
 });
@@ -34,9 +41,22 @@ async function parseIntentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   console.log("[graph] parseIntent");
-  const { region, intents, language, source } = await parseIntent(state.userQuery);
+  
+  const language = await detectLanguage(state.userQuery);
+  let translatedQuery = state.userQuery;
+  let originalQuery = undefined;
+  
+  if (language !== "English") {
+    originalQuery = state.userQuery;
+    translatedQuery = await translateToEnglish(state.userQuery, language);
+    console.log(`[graph] Translated query to English: ${translatedQuery}`);
+  }
+
+  const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || []);
   const action = source === "llm" ? "parse_intent" : "parse_intent_fallback";
   return {
+    userQuery: translatedQuery,
+    originalQuery,
     region,
     intents,
     language,
@@ -82,6 +102,35 @@ async function callWeatherAgentNode(
   };
 }
 
+async function callGeofenceAgentNode(
+  state: GraphStateType,
+): Promise<Partial<GraphStateType>> {
+  console.log("[graph] callGeofenceAgent");
+  const geofenceAlerts = await checkGeofence(state.region);
+  return {
+    geofenceAlerts,
+    executionTrace: trace(state, "geofenceAgent", "check_boundaries"),
+  };
+}
+
+async function callRouteAgentNode(
+  state: GraphStateType,
+): Promise<Partial<GraphStateType>> {
+  if (!state.intents.includes("route_advice")) {
+    console.log("[graph] skipRouteAgent (intent not present)");
+    return {
+      executionTrace: trace(state, "routeAgent", "skip_route_optimization"),
+    };
+  }
+  
+  console.log("[graph] callRouteAgent");
+  const routeOptimization = await optimizeRoute(state.region, state.marineData, state.weatherRisk);
+  return {
+    routeOptimization,
+    executionTrace: trace(state, "routeAgent", "calculate_route"),
+  };
+}
+
 async function synthesizeResponseNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
@@ -107,18 +156,24 @@ const workflow = new StateGraph(GraphState)
   .addNode("parseIntent", parseIntentNode)
   .addNode("callMarineAgent", callMarineAgentNode)
   .addNode("callWeatherAgent", callWeatherAgentNode)
+  .addNode("callGeofenceAgent", callGeofenceAgentNode)
+  .addNode("callRouteAgent", callRouteAgentNode)
   .addNode("synthesizeResponse", synthesizeResponseNode)
   .addEdge("__start__", "parseIntent")
   .addEdge("parseIntent", "callMarineAgent")
   .addEdge("callMarineAgent", "callWeatherAgent")
-  .addEdge("callWeatherAgent", "synthesizeResponse")
+  .addEdge("callWeatherAgent", "callGeofenceAgent")
+  .addEdge("callGeofenceAgent", "callRouteAgent")
+  .addEdge("callRouteAgent", "synthesizeResponse")
   .addEdge("synthesizeResponse", END);
 
 export const graph = workflow.compile();
 
-export async function runQuery(userQuery: string): Promise<QueryState> {
+export async function runQuery(userQuery: string, chatHistory: { role: string; text: string }[] = []): Promise<QueryState> {
   const result = await graph.invoke({
+    chatHistory,
     userQuery,
+    originalQuery: undefined,
     region: { name: "", lat: 0, lon: 0 },
     timestamp: new Date().toISOString(),
     intents: [],

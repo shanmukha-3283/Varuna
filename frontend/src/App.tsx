@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel.tsx";
 import MapView from "./components/MapView.tsx";
 import ExecutionTrace from "./components/ExecutionTrace.tsx";
-import { queryBackend, type QueryState } from "./api.ts";
+import { queryBackend, type QueryState, API_BASE } from "./api.ts";
 import "./App.css";
 
 const DEFAULT_REGION = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 };
@@ -19,6 +19,30 @@ function App() {
   const [loadingSince, setLoadingSince] = useState<number | null>(null);
   const inFlight = useRef<AbortController | null>(null);
 
+  // Proactive Alerts Polling
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const region = latest?.region ?? DEFAULT_REGION;
+        const res = await fetch(`${API_BASE}/api/check_alerts?lat=${region.lat}&lon=${region.lon}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.alerts && data.alerts.length > 0) {
+          const alertText = "🚨 PROACTIVE ALERT: " + data.alerts.join(" ");
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            // Prevent spamming the same alert
+            if (last && last.text === alertText) return prev;
+            return [...prev, { role: "assistant", text: alertText, intents: ["alert_check"] }];
+          });
+        }
+      } catch (err) {
+        console.error("Alert polling failed", err);
+      }
+    }, 30000); // Poll every 30 seconds
+    return () => clearInterval(interval);
+  }, [latest?.region]);
+
   async function handleSend(userQuery: string) {
     const q = userQuery.trim();
     if (!q) return;
@@ -30,7 +54,12 @@ function App() {
     setLoading(true);
     setLoadingSince(Date.now());
     try {
-      const result = await queryBackend(q, controller.signal);
+      // Map messages to simple {role, text} array, excluding errors
+      const chatHistory = messages
+        .filter(m => m.role !== "error")
+        .map(m => ({ role: m.role, text: m.text }));
+        
+      const result = await queryBackend(q, chatHistory, controller.signal);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;

@@ -3,6 +3,8 @@ import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { runQuery } from "./orchestrator/graph.ts";
 import { parseIntent } from "./orchestrator/intentParser.ts";
+import { getWeatherRisk } from "./agents/weatherRisk.ts";
+import { checkGeofence } from "./agents/geofenceAgent.ts";
 
 const app = new Hono();
 
@@ -35,14 +37,14 @@ app.get("/api/intents", async (c) => {
 
 app.post("/api/query", async (c) => {
   try {
-    const body = await c.req.json<{ userQuery?: string }>();
+    const body = await c.req.json<{ userQuery?: string, chatHistory?: { role: string; text: string }[] }>();
     if (!body.userQuery || typeof body.userQuery !== "string") {
       return c.json({ error: "Missing or invalid 'userQuery' field" }, 400);
     }
 
     console.log(`[server] POST /api/query — "${body.userQuery}"`);
     const t0 = Date.now();
-    const result = await runQuery(body.userQuery);
+    const result = await runQuery(body.userQuery, body.chatHistory || []);
     const dt = Date.now() - t0;
     const intentAction = result.executionTrace[0]?.action ?? "unknown";
     const marineAction = result.executionTrace[1]?.action ?? "unknown";
@@ -57,6 +59,37 @@ app.post("/api/query", async (c) => {
 });
 
 const PORT = parseInt(process.env.PORT || "3000", 10);
+
+app.get("/api/check_alerts", async (c) => {
+  const lat = parseFloat(c.req.query("lat") || "17.6868");
+  const lon = parseFloat(c.req.query("lon") || "83.2185");
+  const region = { name: "Current Location", lat, lon };
+  
+  try {
+    // import these dynamically or at top. Wait, better to import at top. Let's do it inline for now or add imports at top.
+    // I need to add imports for getWeatherRisk and checkGeofence.
+    // I'll add a separate replace block for imports.
+    const [weatherRisk, geofenceAlerts] = await Promise.all([
+      getWeatherRisk(region),
+      checkGeofence(region)
+    ]);
+    
+    const alerts = [];
+    if (weatherRisk.verdict === "unsafe" || weatherRisk.alerts.length > 0) {
+      alerts.push(`Weather Alert: ${weatherRisk.alerts.join(", ")} - Sea is ${weatherRisk.verdict}.`);
+    }
+    for (const geo of geofenceAlerts || []) {
+      if (geo.alertLevel === "danger" || geo.alertLevel === "warning") {
+        alerts.push(`Geofence ${geo.alertLevel}: ${geo.message}`);
+      }
+    }
+    
+    return c.json({ alerts });
+  } catch (err) {
+    console.error("[server] /api/check_alerts error:", err);
+    return c.json({ error: "Failed to check alerts" }, 500);
+  }
+});
 
 console.log(`[varuna] Starting backend on port ${PORT}...`);
 console.log(`[varuna] Ollama: ${process.env.OLLAMA_HOST || "http://localhost:11434"}`);

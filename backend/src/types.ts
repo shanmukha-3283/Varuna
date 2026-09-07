@@ -3,7 +3,9 @@
 // push immediately, everyone else pulls before continuing.
 
 export interface QueryState {
+  chatHistory?: { role: string; text: string }[];
   userQuery: string;
+  originalQuery?: string; // original query in regional language
   region: { name: string; lat: number; lon: number };
   timestamp: string;
   intents: string[]; // e.g. ["pfz_lookup", "safety_check"]
@@ -23,6 +25,19 @@ export interface QueryState {
     alerts: string[]; // e.g. ["high-wave", "cyclone-watch"]
     verdict: "safe" | "caution" | "unsafe";
     reasoning: string;
+  };
+
+  geofenceAlerts?: {
+    zoneName: string;
+    alertLevel: "warning" | "danger" | "info";
+    message: string;
+  }[];
+
+  routeOptimization?: {
+    waypoints: { lat: number; lon: number }[];
+    distanceKm: number;
+    estTimeHours: number;
+    message: string;
   };
 
   executionTrace: { agent: string; action: string; timestamp: string }[];

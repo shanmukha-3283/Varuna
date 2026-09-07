@@ -45,24 +45,28 @@ function inferRegion(query: string): Region | null {
 
 export async function parseIntent(
   userQuery: string,
-): Promise<{ region: Region; intents: string[]; language: string; source: "llm" | "fallback" }> {
+  chatHistory: { role: string; text: string }[] = [],
+): Promise<{ region: Region; intents: string[]; source: "llm" | "fallback" }> {
+  let historyStr = "";
+  if (chatHistory.length > 0) {
+    historyStr = "CHAT HISTORY:\n" + chatHistory.map(m => `${m.role.toUpperCase()}: ${m.text}`).join("\n") + "\n\n";
+  }
+
   const prompt = `Extract structured data from this marine/fishing query.
 
-QUERY: "${userQuery}"
+${historyStr}CURRENT QUERY: "${userQuery}"
 
 Return ONLY valid JSON (no markdown, no explanation) with this exact shape:
 {
   "region": { "name": "string", "lat": number, "lon": number },
-  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst"],
-  "language": "string"
+  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst"]
 }
 
 Rules:
 - If no specific region is mentioned, use Visakhapatnam (lat: 17.6868, lon: 83.2185)
 - region.name should be a real coastal place name
 - intents must be from the allowed list only
-- Return at least one intent
-- language should be the natural language of the query (e.g. "English", "Telugu", "Tamil", "Hindi")`;
+- Return at least one intent`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 45_000);
@@ -91,7 +95,6 @@ Rules:
     const parsed = JSON.parse(data.response) as {
       region?: { name?: string; lat?: number; lon?: number };
       intents?: string[];
-      language?: string;
     };
 
     const region: Region = {
@@ -115,9 +118,8 @@ Rules:
         : inferIntents(userQuery);
 
     if (intents.length === 0) intents.push("safety_check");
-    const language = parsed.language || "English";
 
-    return { region, intents, language, source: "llm" };
+    return { region, intents, source: "llm" };
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -131,6 +133,6 @@ Rules:
       lon: 83.2185,
     };
     const intents = inferIntents(userQuery);
-    return { region, intents, language: "English", source: "fallback" };
+    return { region, intents, source: "fallback" };
   }
 }

@@ -1,4 +1,4 @@
-import { CircleMarker, MapContainer, Popup, TileLayer } from "react-leaflet";
+import { CircleMarker, MapContainer, Popup, TileLayer, Polyline } from "react-leaflet";
 import type { MapMarker, Region } from "../api.ts";
 
 interface MapViewProps {
@@ -15,6 +15,7 @@ const DEFAULT_REGION: Region = {
 function markerColor(type: string): string {
   if (type === "pfz") return "#16a34a";
   if (type === "hazard") return "#dc2626";
+  if (type === "route") return "#9333ea"; // Purple for route markers
   return "#2563eb";
 }
 
@@ -46,13 +47,20 @@ export default function MapView({ region, markers }: MapViewProps) {
             <CircleMarker
               key={i}
               center={[m.lat, m.lon]}
-              radius={m.type === "hazard" ? 10 : 7}
+              radius={m.type === "hazard" ? 10 : m.type === "route" ? 5 : 7}
               pathOptions={{ color, fillColor: color, fillOpacity: 0.6 }}
             >
               <Popup>{m.label}</Popup>
             </CircleMarker>
           );
         })}
+        {(() => {
+          const routePoints = markers.filter(m => m.type === "route").map(m => [m.lat, m.lon] as [number, number]);
+          if (routePoints.length > 1) {
+            return <Polyline positions={routePoints} pathOptions={{ color: "#9333ea", weight: 3, dashArray: "4 4" }} />;
+          }
+          return null;
+        })()}
       </MapContainer>
       <div className="map-legend">
         <span>
@@ -63,6 +71,9 @@ export default function MapView({ region, markers }: MapViewProps) {
         </span>
         <span>
           <i className="dot dot-hazard" /> hazard
+        </span>
+        <span>
+          <i className="dot dot-route" style={{backgroundColor: "#9333ea"}} /> route
         </span>
       </div>
       {markers.length === 0 && <p className="map-hint">No PFZ markers — marine data not requested for this intent.</p>}

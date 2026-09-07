@@ -29,6 +29,7 @@ for (const q of QUERIES) {
   assert(state.marineData && state.weatherRisk, "B-leg stubs populated");
 
   const mine = await synthesizeResponse({
+    language: "English",
     region: state.region,
     intents: state.intents,
     marineData: state.marineData,
