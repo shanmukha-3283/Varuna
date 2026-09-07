@@ -1,12 +1,11 @@
-// TODO Hour14: delete this file after real imports from B and C are merged.
-// All three stubs return type-correct Visakhapatnam data for standalone testing.
+// TODO Hour14-B: delete this file after real imports from B are merged.
+// Currently only marine/weather remain stubbed; synthesis is now real (../synthesis/synthesizeResponse.ts).
 
 import type { QueryState } from "../types.ts";
 
 type Region = QueryState["region"];
 type MarineData = NonNullable<QueryState["marineData"]>;
 type WeatherRisk = NonNullable<QueryState["weatherRisk"]>;
-type FinalResponse = NonNullable<QueryState["finalResponse"]>;
 
 export async function getMarineData(region: Region): Promise<MarineData> {
   console.log(`[stub] getMarineData called for ${region.name}`);
@@ -35,57 +34,4 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
   };
 }
 
-export async function synthesizeResponse(
-  state: Pick<QueryState, "region" | "intents" | "marineData" | "weatherRisk">,
-): Promise<FinalResponse> {
-  console.log(`[stub] synthesizeResponse called for ${state.region.name}`);
-
-  const marine = state.marineData;
-  const weather = state.weatherRisk;
-
-  const pfzText = marine
-    ? `The nearest Potential Fishing Zone is ${marine.pfzZones[0].distanceKm} km away at coordinates (${marine.pfzZones[0].lat}, ${marine.pfzZones[0].lon}).`
-    : "";
-  const weatherText = weather
-    ? `Sea conditions are ${weather.verdict}: waves at ${weather.waveHeightM}m, wind ${weather.windSpeedKmh} km/h.`
-    : "";
-  const sstText = marine?.sstCelsius ? `Sea surface temperature is ${marine.sstCelsius}°C.` : "";
-
-  const text = `For ${state.region.name}: ${pfzText} ${weatherText} ${sstText} ${weather?.reasoning || ""}`.trim();
-
-  const mapMarkers: FinalResponse["mapMarkers"] = [];
-
-  if (marine) {
-    for (const zone of marine.pfzZones) {
-      mapMarkers.push({
-        lat: zone.lat,
-        lon: zone.lon,
-        label: `PFZ (${zone.distanceKm} km)`,
-        type: "pfz",
-      });
-    }
-  }
-
-  if (weather && weather.verdict !== "safe") {
-    mapMarkers.push({
-      lat: state.region.lat,
-      lon: state.region.lon,
-      label: `Weather: ${weather.verdict}`,
-      type: "hazard",
-    });
-  }
-
-  const evidence: string[] = [];
-  if (marine) {
-    evidence.push(`INCOIS PFZ data: ${marine.pfzZones.length} zones found`);
-    evidence.push(`SST: ${marine.sstCelsius}°C, Chlorophyll: ${marine.chlorophyll} mg/m³`);
-  }
-  if (weather) {
-    evidence.push(`IMD weather: waves ${weather.waveHeightM}m, wind ${weather.windSpeedKmh} km/h`);
-    if (weather.alerts.length > 0) {
-      evidence.push(`Active alerts: ${weather.alerts.join(", ")}`);
-    }
-  }
-
-  return { text, mapMarkers, evidence };
-}
+// synthesizeResponse removed — now imported from ../synthesis/synthesizeResponse.ts (Laptop C real)
