@@ -41,6 +41,7 @@ function App() {
           text: result.finalResponse?.text ?? "I got a response but it had no text.",
           evidence: result.finalResponse?.evidence,
           intents: result.intents,
+          language: result.language,
           synthesisVia: viaTag,
         },
       ]);

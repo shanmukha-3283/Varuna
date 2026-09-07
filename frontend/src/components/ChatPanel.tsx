@@ -6,6 +6,7 @@ export interface ChatMessage {
   evidence?: string[];
   intents?: string[];
   synthesisVia?: string;
+  language?: string;
 }
 
 interface ChatPanelProps {
@@ -61,6 +62,7 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend }: C
                 {m.intents.map((it) => (
                   <span key={it} className="intent-badge">{it}</span>
                 ))}
+                {m.language && <span className="intent-badge lang-badge">Lang: {m.language}</span>}
                 {m.synthesisVia && <span className="via-badge">{m.synthesisVia}</span>}
               </div>
             )}

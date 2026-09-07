@@ -21,6 +21,7 @@ async function run(name: string, query: string): Promise<QueryState> {
   assert(typeof state.region?.lat === "number", "region.lat is number");
   assert(typeof state.region?.lon === "number", "region.lon is number");
   assert(Array.isArray(state.intents) && state.intents.length > 0, "intents non-empty");
+  assert(typeof state.language === "string" && state.language.length > 0, "language is parsed");
 
   assert(
     Array.isArray(state.executionTrace) && state.executionTrace.length === 4,
@@ -61,10 +62,17 @@ async function run(name: string, query: string): Promise<QueryState> {
   assert(typeof state.weatherRisk?.reasoning === "string", "weatherRisk.reasoning present");
 
   assert(typeof state.finalResponse?.text === "string", "finalResponse.text present");
-  assert(
-    Array.isArray(state.finalResponse?.mapMarkers) && (state.finalResponse?.mapMarkers?.length ?? 0) > 0,
-    "finalResponse.mapMarkers non-empty",
-  );
+  if (marineSkipped && verdict === "safe") {
+    assert(
+      Array.isArray(state.finalResponse?.mapMarkers) && (state.finalResponse?.mapMarkers?.length ?? -1) === 0,
+      "finalResponse.mapMarkers empty (no hazards, no PFZ)",
+    );
+  } else {
+    assert(
+      Array.isArray(state.finalResponse?.mapMarkers) && (state.finalResponse?.mapMarkers?.length ?? 0) > 0,
+      "finalResponse.mapMarkers non-empty",
+    );
+  }
   assert(Array.isArray(state.finalResponse?.evidence), "finalResponse.evidence present");
 
   return state;
@@ -82,6 +90,10 @@ async function main() {
   await run(
     "Alert query",
     "Are there any cyclone or lightning alerts near Visakhapatnam?",
+  );
+  await run(
+    "Multilingual query (Telugu)",
+    "ఈ రోజు విశాఖపట్నం దగ్గర చేపలు పట్టడం సురక్షితమేనా?",
   );
 
   console.log(`\n${failures === 0 ? "ALL TESTS PASSED" : `${failures} TEST(S) FAILED`}`);

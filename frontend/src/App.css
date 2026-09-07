@@ -167,6 +167,12 @@
   color: #2563eb;
 }
 
+.lang-badge {
+  background: rgba(249, 115, 22, 0.1);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  color: #ea580c;
+}
+
 .chat-input {
   display: flex;
   gap: 8px;

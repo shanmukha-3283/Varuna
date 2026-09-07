@@ -26,6 +26,7 @@ export interface QueryState {
   region: Region;
   timestamp: string;
   intents: string[];
+  language: string;
   marineData?: {
     pfzZones: { lat: number; lon: number; distanceKm: number }[];
     sstCelsius?: number;
@@ -60,6 +61,7 @@ function mockResponse(userQuery: string): QueryState {
     region: { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
     timestamp: now,
     intents: ["pfz_lookup", "safety_check"],
+    language: "English",
     marineData: {
       pfzZones: [
         { lat: 17.72, lon: 83.25, distanceKm: 4.2 },

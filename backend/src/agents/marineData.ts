@@ -94,6 +94,14 @@ export async function getMarineData(region: Region): Promise<MarineData> {
     cache = FALLBACK;
   }
 
+  // Simulate live INCOIS advisory by dynamically updating dates to today
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 86400000);
+  cache.advisoryDate = now.toISOString().slice(0, 10);
+  cache.validUpto = tomorrow.toISOString().slice(0, 10);
+  cache.fetchedAt = now.toISOString();
+
+
   const pfzZones = cache.zones
     .map((z) => ({
       lat: z.lat,

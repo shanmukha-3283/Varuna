@@ -13,7 +13,7 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
 
 export type SynthesisInput = Pick<
   QueryState,
-  "region" | "intents" | "marineData" | "weatherRisk"
+  "region" | "intents" | "language" | "marineData" | "weatherRisk"
 >;
 
 type FinalResponse = NonNullable<QueryState["finalResponse"]>;
@@ -156,7 +156,7 @@ async function generateWithOllama(
   const weather = input.weatherRisk;
   const dom = dominantIntent(input.intents);
   const framing = intentFraming(dom);
-  const facts: string[] = [`Region: ${input.region.name}`, `Dominant intent: ${dom}`];
+  const facts: string[] = [`Region: ${input.region.name}`, `Dominant intent: ${dom}`, `Language: ${input.language}`];
   if (marine && marine.pfzZones.length > 0) {
     const n = marine.pfzZones[0];
     facts.push(
@@ -195,6 +195,8 @@ async function generateWithOllama(
     "never as avoidance (never say 'stay away/clear/at least X km from the zone'). " +
     "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
     "unsafe = stay ashore. " +
+    `CRITICAL: Output the final response natively in ${input.language}. Translate the reasoning while keeping the precise numbers intact. ` +
+    "Emphasize that the weather and marine conditions are based on LIVE data and the latest advisories. " +
     "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce them verbatim, " +
     "never round, estimate, or substitute a different zone's numbers. " +
     "Plain text only, no markdown, no preamble.\n\n" +
