@@ -8,6 +8,9 @@
 
 import type { QueryState } from "../types.ts";
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { translateFromEnglish } from "../services/translation.ts";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
@@ -77,6 +80,32 @@ function tideLine(reasoning: string): string | null {
   const m = reasoning.match(/Next high tide .*?IST.*?low .*?IST.*?(?:—|–)/i)
     ?? reasoning.match(/high tide.*?IST.*?low.*?IST.*/i);
   return m ? `Tide: ${m[0].trim()}` : null;
+}
+
+interface HistorySnap { sector: string; date: string; sstCelsius: number; chlorophyll: number; }
+let historyCache: HistorySnap[] | null = null;
+function loadHistory(): HistorySnap[] {
+  if (historyCache) return historyCache;
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(join(dir, "..", "data", "productivity_history.json"), "utf-8");
+    historyCache = (JSON.parse(raw) as { snapshots: HistorySnap[] }).snapshots;
+  } catch {
+    historyCache = [];
+  }
+  return historyCache;
+}
+
+/** "Why has productivity declined here?" — compare current vs earliest snapshot. */
+export function productivityTrend(sectorSource: string, sst?: number, chl?: number): string | null {
+  if (sst === undefined || chl === undefined) return null;
+  const snaps = loadHistory().filter((s) => sectorSource.toLowerCase().includes(s.sector.toLowerCase()));
+  if (snaps.length < 2) return null;
+  const first = snaps[0];
+  const dChl = +(chl - first.chlorophyll).toFixed(2);
+  const dSst = +(sst - first.sstCelsius).toFixed(1);
+  const dir = dChl < 0 ? "declined" : dChl > 0 ? "improved" : "steady";
+  return `Productivity trend: chlorophyll ${dir} from ${first.chlorophyll} (${first.date}) to ${chl} now (${dChl >= 0 ? "+" : ""}${dChl}), SST ${first.sstCelsius}°C → ${sst}°C (${dSst >= 0 ? "+" : ""}${dSst}) — ${dChl < -0.2 ? "weakening bloom explains thinner catches; prefer the nearest PFZ marker" : "conditions track the seasonal norm"}.`;
 }
 
 function buildTemplateText(input: SynthesisInput): string {
@@ -203,6 +232,8 @@ function buildEvidence(input: SynthesisInput): string[] {
     if (parts.length > 0) evidence.push(parts.join(", "));
     const prod = productivityNote(marine.sstCelsius, marine.chlorophyll);
     if (prod) evidence.push(prod);
+    const trend = productivityTrend(marine.source, marine.sstCelsius, marine.chlorophyll);
+    if (trend) evidence.push(trend);
   }
   if (weather) {
     evidence.push(

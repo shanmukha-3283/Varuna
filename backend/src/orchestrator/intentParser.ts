@@ -1,4 +1,5 @@
 import type { QueryState } from "../types.ts";
+import { geocodePlace } from "../services/geocode.ts";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
@@ -26,11 +27,21 @@ const REGION_FALLBACKS: Record<string, Region> = {
   goa: { name: "Goa", lat: 15.2993, lon: 74.124 },
   mangalore: { name: "Mangalore", lat: 12.9141, lon: 74.856 },
   karwar: { name: "Karwar", lat: 14.8131, lon: 74.1294 },
+  bapatla: { name: "Bapatla", lat: 15.9042, lon: 80.4678 },
+  "బాపట్ల": { name: "Bapatla", lat: 15.9042, lon: 80.4678 },
+  chirala: { name: "Chirala", lat: 15.8235, lon: 80.3522 },
+  nizampatnam: { name: "Nizampatnam", lat: 15.9068, lon: 80.6718 },
+  machilipatnam: { name: "Machilipatnam", lat: 16.1875, lon: 81.1388 },
+  ongole: { name: "Ongole", lat: 15.5058, lon: 80.0499 },
+  nellore: { name: "Nellore", lat: 14.4426, lon: 79.9865 },
+  dhanushkodi: { name: "Dhanushkodi", lat: 9.152, lon: 79.4152 },
 };
+
+export const REGION_TABLE = REGION_FALLBACKS;
 
 const INTENT_KEYWORDS: Record<string, string[]> = {
   pfz_lookup: ["pfz", "fishing zone", "fish", "catch", "potential fishing", "productivity", "where to fish"],
-  safety_check: ["safe", "danger", "risk", "venture", "go to sea", "sailing", "should i go"],
+  safety_check: ["safe", "danger", "risk", "venture", "go to sea", "sailing", "should i go", "beach", "visit", "visiting", "picnic", "swim", "swimming", "best time", "evening visit", "morning visit"],
   weather_lookup: ["weather", "temperature", "forecast", "rain", "wind", "sea condition", "wave"],
   tide_lookup: ["tide", "high tide", "low tide", "tidal", "harbour timing"],
   alert_check: ["alert", "warning", "cyclone", "lightning", "storm", "emergency", "thunder"],
@@ -84,7 +95,7 @@ export async function parseIntent(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
   currentRegion: Region = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 }
-): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "fallback" }> {
+): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "geocoder" | "fallback" }> {
   // Rule 1: explicit place-name in the CURRENT query always wins —
   // skip the LLM for region so history/defaults (e.g. sticky Vizag)
   // can never override "Kakinada".
@@ -157,7 +168,7 @@ Rules:
       lat: parsed.region?.lat ?? currentRegion.lat,
       lon: parsed.region?.lon ?? currentRegion.lon,
     };
-    let source: "llm" | "keyword" | "fallback" = "llm";
+    let source: "llm" | "keyword" | "geocoder" | "fallback" = "llm";
 
     // Rule 2: validate LLM region against the explicit mention.
     // If the query names Kakinada but the LLM echoed Vizag/default,
@@ -170,6 +181,18 @@ Rules:
         console.log(`[intentParser] LLM region "${region.name}" overridden by explicit "${explicit.name}"`);
         region = explicit;
         source = "keyword";
+      }
+    }
+
+    // Rule 3: unlisted place (e.g. Bapatla before it was tabled, or any
+    // Indian coastal town) — live geocoder before accepting the default.
+    // Triggers when the LLM merely echoed currentRegion/default.
+    if (source === "llm" && region.name === currentRegion.name) {
+      const geo = await geocodePlace(userQuery);
+      if (geo) {
+        console.log(`[intentParser] geocoder resolved "${geo.candidate}" -> ${geo.region.name}`);
+        region = geo.region;
+        source = "geocoder";
       }
     }
 
@@ -188,9 +211,17 @@ Rules:
     } else {
       console.error("[intentParser] LLM failed, using fallback:", err);
     }
-    // Offline path: keyword scan first (explicit wins), else default.
+    // Offline path: keyword scan first (explicit wins), geocoder second, else default.
     if (explicit) {
       return { region: explicit, intents: inferIntents(userQuery), source: "keyword" };
+    }
+    try {
+      const geo = await geocodePlace(userQuery);
+      if (geo) {
+        return { region: geo.region, intents: inferIntents(userQuery), source: "geocoder" };
+      }
+    } catch {
+      // fall through to keyword/default
     }
     const region = inferRegion(userQuery, currentRegion);
     const intents = inferIntents(userQuery);

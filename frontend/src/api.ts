@@ -1,6 +1,4 @@
-// src/api.ts — Laptop C. Single wrapper around the backend's POST /api/query.
-// Until Hour 22 (real backend wired), USE_MOCK serves a type-correct
-// Visakhapatnam response so the UI builds standalone. Flip to false then.
+// src/api.ts - single wrapper around the backend POST /api/query (live only).
 
 export interface Region {
   name: string;
@@ -63,60 +61,6 @@ export interface QueryState {
 
 export const API_BASE = "http://localhost:3000";
 
-// Hour 14: backend is live — use the real call. (Mock kept below for offline UI work.)
-const USE_MOCK = false;
-
-function mockResponse(userQuery: string): QueryState {
-  const now = new Date().toISOString();
-  return {
-    userQuery,
-    region: { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
-    timestamp: now,
-    intents: ["pfz_lookup", "safety_check"],
-    language: "English",
-    marineData: {
-      pfzZones: [
-        { lat: 17.72, lon: 83.25, distanceKm: 4.2 },
-        { lat: 17.65, lon: 83.3, distanceKm: 6.8 },
-        { lat: 17.78, lon: 83.18, distanceKm: 11.3 },
-      ],
-      sstCelsius: 28.4,
-      chlorophyll: 1.2,
-      source: "INCOIS (mock)",
-      fetchedAt: now,
-    },
-    weatherRisk: {
-      waveHeightM: 1.8,
-      windSpeedKmh: 22,
-      alerts: [],
-      verdict: "caution",
-      reasoning:
-        "Wave height of 1.8m is in the caution range (1.5-2.5m). Wind speed is moderate at 22 km/h.",
-    },
-    executionTrace: [
-      { agent: "intentParser", action: "parse_intent", timestamp: now },
-      { agent: "marineDataAgent", action: "fetch_marine_data", timestamp: now },
-      { agent: "weatherRiskAgent", action: "fetch_weather_risk", timestamp: now },
-      { agent: "synthesisAgent", action: "synthesize_response", timestamp: now },
-    ],
-    finalResponse: {
-      text: "For Visakhapatnam: the nearest Potential Fishing Zone is 4.2 km away (17.72, 83.25), with sea surface temperature 28.4°C. Sea conditions are caution — waves 1.8 m, wind 22 km/h — so venture out only with caution and monitor IMD updates closely. No active alerts for the coast right now. (mock response — real backend not wired yet)",
-      mapMarkers: [
-        { lat: 17.72, lon: 83.25, label: "PFZ (4.2 km)", type: "pfz" },
-        { lat: 17.65, lon: 83.3, label: "PFZ (6.8 km)", type: "pfz" },
-        { lat: 17.78, lon: 83.18, label: "PFZ (11.3 km)", type: "pfz" },
-        { lat: 17.6868, lon: 83.2185, label: "Weather: caution", type: "hazard" },
-      ],
-      evidence: [
-        "INCOIS PFZ data (INCOIS (mock)): 3 zone(s) found",
-        "SST 28.4°C, chlorophyll 1.2 mg/m³",
-        "IMD weather: waves 1.8 m, wind 22 km/h",
-        "No active alerts",
-      ],
-    },
-  };
-}
-
 export async function queryBackend(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
@@ -124,10 +68,6 @@ export async function queryBackend(
   currentRegion?: Region,
   outerSignal?: AbortSignal,
 ): Promise<QueryState> {
-  if (USE_MOCK) {
-    await new Promise((r) => setTimeout(r, 600));
-    return mockResponse(userQuery);
-  }
   // Generous timeout: the graph makes 2 Ollama calls (intent + synthesis),
   // and a cold model can take 60-90s. Caller may also cancel via outerSignal
   // (e.g. user sends a new query) — that surfaces as a "cancelled" error.

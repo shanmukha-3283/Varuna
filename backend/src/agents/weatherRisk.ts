@@ -126,25 +126,35 @@ function loadCache(): Cache {
   return CacheSchema.parse(JSON.parse(raw));
 }
 
-async function fetchLiveWeather(lat: number, lon: number): Promise<{ windSpeedKmh: number; waveHeightM: number } | null> {
+async function fetchLiveWeather(lat: number, lon: number): Promise<{ windSpeedKmh: number; waveHeightM: number; weatherCode?: number } | null> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 10000);
   try {
-    const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=wind_speed_10m`, { signal: ctl.signal });
+    const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=wind_speed_10m,weather_code`, { signal: ctl.signal });
     const marineRes = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height`, { signal: ctl.signal });
     if (!wxRes.ok || !marineRes.ok) throw new Error("API error");
     const wxBody = await wxRes.json() as any;
     const marineBody = await marineRes.json() as any;
     const windSpeedKmh = wxBody.current?.wind_speed_10m;
     const waveHeightM = marineBody.current?.wave_height;
+    const weatherCode = wxBody.current?.weather_code;
     if (typeof windSpeedKmh !== "number" || typeof waveHeightM !== "number") throw new Error("Invalid response");
-    return { windSpeedKmh, waveHeightM };
+    return { windSpeedKmh, waveHeightM, weatherCode: typeof weatherCode === "number" ? weatherCode : undefined };
   } catch (err) {
     console.error("[weatherRiskAgent] live weather fetch failed:", err);
     return null;
   } finally {
     clearTimeout(t);
   }
+}
+
+// WMO weather codes signalling thunderstorm / lightning activity.
+function isThunderstorm(code?: number): boolean {
+  return code === 95 || code === 96 || code === 99;
+}
+
+function bulletinSignalsCyclone(warning: string): boolean {
+  return /cyclon|depression|deep depression|storm/i.test(warning);
 }
 
 export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
@@ -170,11 +180,13 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
 
     // Live-with-fallback: try Open-Meteo, fall back to cache on failure.
     const liveWeather = await fetchLiveWeather(region.lat, region.lon);
+    let liveWeatherCode: number | undefined;
     if (liveWeather) {
       waveHeightM = liveWeather.waveHeightM;
       windSpeedKmh = liveWeather.windSpeedKmh;
+      liveWeatherCode = liveWeather.weatherCode;
       provenance = cache ? "IMD cache + Open-Meteo live" : "Open-Meteo live";
-      console.log(`[weatherRiskAgent] using live weather for ${region.name}: wave ${waveHeightM}m, wind ${windSpeedKmh}km/h`);
+      console.log(`[weatherRiskAgent] using live weather for ${region.name}: wave ${waveHeightM}m, wind ${windSpeedKmh}km/h, code ${liveWeatherCode ?? "n/a"}`);
     } else if (cache) {
       provenance = "IMD cache (live fetch failed — cache fallback)";
       console.log(`[weatherRiskAgent] live fetch failed, using cache for ${region.name}`);
@@ -182,19 +194,21 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
       provenance = "Open-Meteo live attempt failed, defaults";
     }
 
-    // Derive high-wave alert from the effective wave height (legitimate rule).
-    // Cyclone-watch is NOT mocked from coordinates — it only comes from the
-    // IMD bulletin warning field or an explicit ops override.
+    // Real alert derivations — no mocks:
+    // - high-wave from effective wave height
+    // - lightning from live WMO thunderstorm codes (95/96/99)
+    // - cyclone-watch from IMD bulletin warning text (cyclone/depression/storm)
     if (waveHeightM > 2.5 && !alerts.includes("high-wave")) {
       alerts.push("high-wave");
     }
     if (bulletin && bulletin.warning !== "NIL" && !alerts.includes("imd-warning")) {
       alerts.push("imd-warning");
     }
-    if (process.env.ALLOW_MOCK_ALERTS === "true") {
-      if (region.lon > 85 && region.lat < 15 && !alerts.includes("cyclone-watch")) {
-        alerts.push("cyclone-watch"); // explicit ops-simulation flag only
-      }
+    if (liveWeatherCode !== undefined && isThunderstorm(liveWeatherCode) && !alerts.includes("lightning")) {
+      alerts.push("lightning");
+    }
+    if (bulletin && bulletinSignalsCyclone(bulletin.warning) && !alerts.includes("cyclone-watch")) {
+      alerts.push("cyclone-watch");
     }
 
     const verdict = computeVerdict(waveHeightM, alerts);

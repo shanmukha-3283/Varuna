@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { QueryState } from "../api.ts";
 
 function Bar({ value, max, color }: { value: number; max: number; color: string }) {
@@ -26,6 +27,55 @@ function productivity(sst?: number, chl?: number): { label: string; tone: string
   if (sst === undefined || chl === undefined) return null;
   if (sst >= 27 && sst <= 29.5 && chl >= 0.5) return { label: "Favourable — plankton-rich, good PFZ potential", tone: "#15803d" };
   return { label: "Subdued — fish may be deeper or dispersed", tone: "#b45309" };
+}
+
+function Spark({ values, color, label }: { values: number[]; color: string; label: string }) {
+  if (values.length < 2) return null;
+  const w = 220, h = 48, pad = 4;
+  const min = Math.min(...values), max = Math.max(...values);
+  const span = max - min || 1;
+  const pts = values.map((v, i) => `${pad + (i * (w - 2 * pad)) / (values.length - 1)},${h - pad - ((v - min) / span) * (h - 2 * pad)}`).join(" ");
+  return (
+    <div className="spark-block">
+      <div className="kv"><span>{label}</span><strong>{min.toFixed(1)} – {max.toFixed(1)}</strong></div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="spark" role="img" aria-label={`${label} 7-day trend`}>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+      </svg>
+    </div>
+  );
+}
+
+function TrendCharts({ lat, lon }: { lat: number; lon: number }) {
+  const [waves, setWaves] = useState<number[]>([]);
+  const [winds, setWinds] = useState<number[]>([]);
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const [m, w] = await Promise.all([
+          fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&daily=wave_height_max&forecast_days=7&timezone=auto`).then((r) => r.json()),
+          fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=wind_speed_10m_max&forecast_days=7&timezone=auto`).then((r) => r.json()),
+        ]);
+        if (cancelled) return;
+        if (Array.isArray(m?.daily?.wave_height_max)) setWaves(m.daily.wave_height_max.filter((v: unknown) => typeof v === "number"));
+        if (Array.isArray(w?.daily?.wind_speed_10m_max)) setWinds(w.daily.wind_speed_10m_max.filter((v: unknown) => typeof v === "number"));
+      } catch {
+        if (!cancelled) setNote("Trend unavailable offline");
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [lat, lon]);
+  if (waves.length === 0 && winds.length === 0) {
+    return note ? <p className="muted small">{note}</p> : <p className="muted small">Loading 7-day trend…</p>;
+  }
+  return (
+    <div>
+      {waves.length > 0 && <Spark values={waves} color="#0b5fa5" label="🌊 Wave max (m, 7d)" />}
+      {winds.length > 0 && <Spark values={winds} color="#7c3aed" label="💨 Wind max (km/h, 7d)" />}
+    </div>
+  );
 }
 
 export default function SafetyPanels({ latest }: { latest: QueryState | null }) {
@@ -62,6 +112,7 @@ export default function SafetyPanels({ latest }: { latest: QueryState | null }) 
           ) : (
             <p className="alert-line ok">✓ No active weather alerts</p>
           )}
+          <TrendCharts lat={latest.region.lat} lon={latest.region.lon} />
         </div>
       )}
 
@@ -78,6 +129,9 @@ export default function SafetyPanels({ latest }: { latest: QueryState | null }) 
           <div className="kv"><span>PFZ zones</span><strong>{marine.pfzZones.length} found</strong></div>
           {prod && <p className="muted small">{prod.label}</p>}
           {tide && <p className="tide">🌊 {tide}</p>}
+          {latest.finalResponse?.evidence?.filter((e) => e.startsWith("Productivity trend:")).map((e, i) => (
+            <p key={i} className="muted small">📉 {e}</p>
+          ))}
         </div>
       )}
 

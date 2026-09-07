@@ -53,7 +53,7 @@ async function parseIntentNode(
   }
 
   const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || [], state.region);
-  const action = source === "llm" ? "parse_intent" : source === "keyword" ? "parse_intent_keyword" : "parse_intent_fallback";
+  const action = source === "llm" ? "parse_intent" : source === "keyword" ? "parse_intent_keyword" : source === "geocoder" ? "parse_intent_geocoder" : "parse_intent_fallback";
   return {
     userQuery: translatedQuery,
     originalQuery,
