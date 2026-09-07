@@ -50,6 +50,7 @@ const INTENT_KEYWORDS: Record<string, string[]> = {
 };
 
 function inferIntents(query: string): string[] {
+  if (isGreeting(query)) return ["greeting"];
   const lower = query.toLowerCase();
   const intents: string[] = [];
   for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
@@ -58,6 +59,22 @@ function inferIntents(query: string): string[] {
     }
   }
   return intents.length > 0 ? intents : ["safety_check"];
+}
+
+/** Pure conversational openers ("hi", "namaste", …) — no data query inside. */
+export function isGreeting(query: string): boolean {
+  const t = query.trim().toLowerCase().replace(/[!.?,]+$/g, "").trim();
+  if (t.length === 0 || t.length > 30) return false;
+  const patterns = [
+    /^(hi|hii+|hey|hello|yo)\b/,
+    /^(good\s?(morning|afternoon|evening|day))\b/,
+    /^(namaste|namaskar|vanakkam|namaskaram)\b/,
+    /^నమస్తే$/, /^హాయ్$/,
+    /^నమస్కారం$/,
+    /^வணக்கம்$/,
+    /^नमस्ते$/,
+  ];
+  return patterns.some((p) => p.test(t));
 }
 
 function inferRegion(query: string, defaultRegion: Region): Region {
@@ -96,9 +113,11 @@ export async function parseIntent(
   chatHistory: { role: string; text: string }[] = [],
   currentRegion: Region = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 }
 ): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "geocoder" | "fallback" }> {
-  // Rule 1: explicit place-name in the CURRENT query always wins —
-  // skip the LLM for region so history/defaults (e.g. sticky Vizag)
-  // can never override "Kakinada".
+  // Rule 0: pure greeting — no LLM, no data agents downstream.
+  // Keep the current pin; the graph short-circuits to a warm ask+suggest reply.
+  if (isGreeting(userQuery)) {
+    return { region: currentRegion, intents: ["greeting"], source: "keyword" };
+  }
   const explicit = extractExplicitRegion(userQuery);
   const validIntents = [
     "pfz_lookup",
@@ -108,6 +127,7 @@ export async function parseIntent(
     "alert_check",
     "route_advice",
     "chlorophyll_sst",
+    "greeting",
   ];
 
   // Only the last 2 turns go to the LLM to reduce sticky-history bias.
@@ -124,7 +144,7 @@ ${historyStr}CURRENT QUERY: "${userQuery}"
 Return ONLY valid JSON (no markdown, no explanation) with this exact shape:
 {
   "region": { "name": "string", "lat": number, "lon": number },
-  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst"]
+  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst" | "greeting"]
 }
 
 Rules:

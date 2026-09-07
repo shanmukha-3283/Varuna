@@ -15,7 +15,9 @@ const GraphState = Annotation.Root({
   region: Annotation<QueryState["region"]>,
   timestamp: Annotation<string>,
   intents: Annotation<string[]>,
-  language: Annotation<string>,
+  language: Annotation<string>, // reply language = UI selector, never overwritten by detection
+  detectedLanguage: Annotation<string | undefined>, // internal: what the user typed
+  regionSource: Annotation<string | undefined>, // keyword|geocoder|llm|fallback
   marineData: Annotation<QueryState["marineData"] | undefined>,
   weatherRisk: Annotation<QueryState["weatherRisk"] | undefined>,
   geofenceAlerts: Annotation<QueryState["geofenceAlerts"] | undefined>,
@@ -45,7 +47,10 @@ async function parseIntentNode(
   const inputLanguage = await detectLanguage(state.userQuery);
   let translatedQuery = state.userQuery;
   let originalQuery = undefined;
-  
+
+  // Detection only decides whether the QUERY needs English translation
+  // for the agents. The REPLY language stays as the UI selector
+  // (state.language, seeded from preferredLanguage).
   if (inputLanguage !== "English") {
     originalQuery = state.userQuery;
     translatedQuery = await translateToEnglish(state.userQuery, inputLanguage);
@@ -57,8 +62,9 @@ async function parseIntentNode(
   return {
     userQuery: translatedQuery,
     originalQuery,
-    language: inputLanguage,
+    detectedLanguage: inputLanguage,
     region,
+    regionSource: source,
     intents,
     executionTrace: trace(state, "intentParser", action),
   };
@@ -70,9 +76,19 @@ function needsMarine(intents: string[]): boolean {
   return intents.some((i) => MARINE_INTENTS.has(i));
 }
 
+function isConversational(intents: string[]): boolean {
+  return intents.length === 1 && intents[0] === "greeting";
+}
+
 async function callMarineAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  if (isConversational(state.intents)) {
+    console.log("[graph] skipMarineAgent (greeting — conversational)");
+    return {
+      executionTrace: trace(state, "marineDataAgent", "skip_marine_data (greeting)"),
+    };
+  }
   if (!needsMarine(state.intents)) {
     console.log(`[graph] skipMarineAgent (intents: ${state.intents.join(",")})`);
     return {
@@ -94,6 +110,12 @@ async function callMarineAgentNode(
 async function callWeatherAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  if (isConversational(state.intents)) {
+    console.log("[graph] skipWeatherAgent (greeting — conversational)");
+    return {
+      executionTrace: trace(state, "weatherRiskAgent", "skip_weather_risk (greeting)"),
+    };
+  }
   console.log("[graph] callWeatherAgent");
   const weatherRisk = await getWeatherRisk(state.region);
   return {
@@ -105,6 +127,12 @@ async function callWeatherAgentNode(
 async function callGeofenceAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  if (isConversational(state.intents)) {
+    console.log("[graph] skipGeofenceAgent (greeting — conversational)");
+    return {
+      executionTrace: trace(state, "geofenceAgent", "skip_boundaries (greeting)"),
+    };
+  }
   console.log("[graph] callGeofenceAgent");
   const geofenceAlerts = await checkGeofence(state.region);
   return {
@@ -143,6 +171,7 @@ async function synthesizeResponseNode(
     weatherRisk: state.weatherRisk,
     geofenceAlerts: state.geofenceAlerts,
     routeOptimization: state.routeOptimization,
+    regionSource: state.regionSource,
   });
   return {
     finalResponse,

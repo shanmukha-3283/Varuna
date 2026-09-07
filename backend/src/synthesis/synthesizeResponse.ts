@@ -19,7 +19,10 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
 export type SynthesisInput = Pick<
   QueryState,
   "region" | "intents" | "language" | "marineData" | "weatherRisk" | "geofenceAlerts" | "routeOptimization"
->;
+> & {
+  /** How the region was resolved: keyword|geocoder = user-named, llm|fallback may be the untouched default pin. */
+  regionSource?: string;
+};
 
 type FinalResponse = NonNullable<QueryState["finalResponse"]>;
 type MapMarker = FinalResponse["mapMarkers"][number];
@@ -162,6 +165,17 @@ function buildTemplateText(input: SynthesisInput): string {
 
   const guide = input.weatherRisk ? alertGuidance(input.weatherRisk.alerts) : null;
   if (guide) sentences.push(guide);
+
+  // Honest default-spot note: when the region wasn't user-named
+  // (keyword/geocoder), say so instead of sounding Vizag-specific.
+  if (
+    (input.regionSource === "fallback" || input.regionSource === "llm") &&
+    !input.intents.includes("greeting")
+  ) {
+    sentences.push(
+      `Showing your selected spot (${region.name}) — tap Locate me or search your town for local advice.`,
+    );
+  }
 
   return `For ${region.name}: ${sentences.join(" ")}`.trim();
 }
@@ -420,10 +434,31 @@ async function generateWithOllama(
   }
 }
 
+function buildGreeting(input: SynthesisInput): string {
+  const spot = input.region?.name ?? "your coast";
+  return (
+    `Hello! I'm Varuna, your marine intelligence assistant. ` +
+    `Tell me your fishing spot (currently set to ${spot}) and what you need — ` +
+    `nearest fishing zone, sea safety, tide and weather, alerts, or the safest route out.`
+  );
+}
+
 export async function synthesizeResponse(
   state: SynthesisInput,
 ): Promise<FinalResponse> {
   console.log(`[synthesizeResponse] called for ${state.region.name} intents=${state.intents.join(",")}`);
+
+  // Conversational greeting: warm ask+suggest, no data dump, no LLM needed.
+  // state.language is the UI selector choice (selector always wins).
+  if (state.intents.length === 1 && state.intents[0] === "greeting") {
+    const text = await translateFromEnglish(buildGreeting(state), state.language);
+    return {
+      text,
+      mapMarkers: [],
+      evidence: ["Conversational greeting — no marine data fetched (ask+suggest)"],
+    };
+  }
+
   const mapMarkers = buildMapMarkers(state);
   const evidenceBase = buildEvidence(state);
   const fallback = buildTemplateText(state);
