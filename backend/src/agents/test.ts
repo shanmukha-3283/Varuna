@@ -3,7 +3,8 @@
 // asserts the outputs match backend/src/types.ts exactly.
 // Run: npx tsx src/agents/test.ts   (from backend/)
 import { getMarineData, haversineKm } from "./marineData.ts";
-import { buildReasoning, computeVerdict, getWeatherRisk } from "./weatherRisk.ts";
+import { buildReasoning, computeVerdict, detectEscalation, getWeatherRisk } from "./weatherRisk.ts";
+import { daysBetween, expiryNote, STALE_AFTER_DAYS, stalenessNote } from "./cacheUtils.ts";
 import type { QueryState } from "../types.ts";
 
 type MarineData = NonNullable<QueryState["marineData"]>;
@@ -96,11 +97,80 @@ async function testWeather(): Promise<void> {
     warning: "NIL",
   }, "caution");
   assert(r.length > 50 && r.includes("1.5"), "reasoning embeds wave height and bulletin facts");
+
+  console.log("\n=== escalation detection (H3) ===");
+  assert(
+    detectEscalation("SLIGHT TO MODERATE BECOMING ROUGH IN THUNDERSHOWERS") === true,
+    "bulletin escalation phrase detected",
+  );
+  assert(detectEscalation("SLIGHT TO MODERATE") === false, "calm sea state has no escalation");
+  assert(detectEscalation("CALM") === false, "calm has no escalation");
+  const re = buildReasoning(1.5, 32, {
+    issuer: "CWC Visakhapatnam (IMD)",
+    type: "t",
+    validFrom: "x",
+    validTo: "y",
+    issuedAt: "2026-09-02T13:24:00+05:30",
+    wind: "MAINLY SOUTHWESTERLY 15-20 KNOTS",
+    weather: "SCATTERED RAIN OR THUNDERSHOWERS",
+    seaCondition: "SLIGHT TO MODERATE BECOMING ROUGH IN THUNDERSHOWERS",
+    portSignal: "NIL AT ALL PORTS",
+    warning: "NIL",
+  }, "caution", 3.0);
+  assert(re.includes("rough") && re.includes("3"), "escalation sentence cites rough max (~3 m)");
+  const reNoMax = buildReasoning(1.5, 32, {
+    issuer: "CWC Visakhapatnam (IMD)",
+    type: "t",
+    validFrom: "x",
+    validTo: "y",
+    issuedAt: "2026-09-02T13:24:00+05:30",
+    wind: "WIND",
+    weather: "W",
+    seaCondition: "ROUGH",
+    portSignal: "NIL",
+    warning: "NIL",
+  }, "caution");
+  assert(reNoMax.includes("2.5+"), "escalation without stored max falls back to 2.5+");
+
+  // Live cache carries the real escalation bulletin + max, so the served
+  // reasoning must contain the escalation sentence (date-independent).
+  assert(
+    w.reasoning.includes("return to shore if weather builds"),
+    "live reasoning surfaces the thundershower escalation",
+  );
+}
+
+function testCacheUtils(): void {
+  console.log("\n=== cacheUtils staleness/expiry (H1, deterministic) ===");
+  const now = Date.parse("2026-09-10T00:00:00.000Z");
+  assert(STALE_AFTER_DAYS === 3, `stale threshold is 3 days (got ${STALE_AFTER_DAYS})`);
+  assert(daysBetween(Date.parse("2026-09-07T00:00:00Z"), now) === 3, "daysBetween counts whole days");
+  assert(
+    stalenessNote("2026-09-08T00:00:00.000Z", now) === null,
+    "2-day-old cache is fresh (no note)",
+  );
+  const old = stalenessNote("2026-09-07T00:00:00.000Z", now);
+  assert(
+    old !== null && old.includes("3 days old") && old.includes("refresh advised"),
+    `3-day-old cache flagged (${old})`,
+  );
+  assert(stalenessNote("not-a-date", now) === null, "unparseable timestamp stays silent");
+  assert(
+    expiryNote("2026-09-07", Date.parse("2026-09-07T12:00:00.000Z")) === null,
+    "advisory still valid on its valid-upto day",
+  );
+  const expired = expiryNote("2026-09-07", now);
+  assert(
+    expired !== null && expired.includes("expired"),
+    `passed valid-upto flagged (${expired})`,
+  );
+  assert(expiryNote("not-a-date", now) === null, "unparseable valid-upto stays silent");
 }
 
 async function main(): Promise<void> {
   await testMarine();
   await testWeather();
+  testCacheUtils();
   console.log(`\n${failures === 0 ? "ALL LAPTOP-B TESTS PASSED" : `${failures} TEST(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
