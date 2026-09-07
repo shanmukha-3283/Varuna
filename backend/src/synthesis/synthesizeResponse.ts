@@ -116,10 +116,36 @@ function buildEvidence(input: SynthesisInput): string[] {
   return evidence;
 }
 
+function dominantIntent(intents: string[]): string {
+  const order = ["alert_check", "tide_lookup", "safety_check", "pfz_lookup", "chlorophyll_sst", "weather_lookup", "route_advice"];
+  for (const o of order) if (intents.includes(o)) return o;
+  return intents[0] ?? "safety_check";
+}
+
+function intentFraming(intent: string): string {
+  switch (intent) {
+    case "alert_check":
+      return "Lead with the hazard first: state the verdict (safe/caution/unsafe) and any alerts immediately, then mention PFZ only if it exists and with caution. Prioritize safety over fishing opportunity.";
+    case "tide_lookup":
+      return "Emphasize harbour timing: surface the tide times (next high/low IST) from the reasoning, advise planning departures around slack water (high tide), then mention sea conditions.";
+    case "pfz_lookup":
+      return "Focus on WHERE TO GO: present the PFZ distance and coordinates as a fishing opportunity, cite SST and chlorophyll if available, then add the safety caveat per verdict.";
+    case "chlorophyll_sst":
+      return "Focus on ocean productivity: cite SST and chlorophyll values and what they mean for fish likelihood, then ground with PFZ distance and safety verdict.";
+    case "weather_lookup":
+      return "Focus on weather details: cite wind, waves, and sea condition, then relate to fishing safety and PFZ if present.";
+    case "route_advice":
+      return "Frame as route guidance: suggest heading toward the PFZ bearing while flagging any hazard zones to avoid, per verdict.";
+    case "safety_check":
+    default:
+      return "Provide a balanced safety assessment: start with the verdict, then evidence for PFZ, weather, and tide to support the recommendation.";
+  }
+}
+
 async function generateWithOllama(
   input: SynthesisInput,
   fallback: string,
-): Promise<string> {
+): Promise<{ text: string; via: "llm" | "template" }> {
   const context = {
     region: input.region,
     intents: input.intents,
@@ -128,9 +154,9 @@ async function generateWithOllama(
   };
   const marine = input.marineData;
   const weather = input.weatherRisk;
-  // Explicit key facts: small models ground better on a flat fact list
-  // than by extracting numbers from nested JSON. Instruct verbatim citation.
-  const facts: string[] = [`Region: ${input.region.name}`];
+  const dom = dominantIntent(input.intents);
+  const framing = intentFraming(dom);
+  const facts: string[] = [`Region: ${input.region.name}`, `Dominant intent: ${dom}`];
   if (marine && marine.pfzZones.length > 0) {
     const n = marine.pfzZones[0];
     facts.push(
@@ -138,6 +164,10 @@ async function generateWithOllama(
     );
     if (marine.sstCelsius !== undefined)
       facts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
+    if (marine.chlorophyll !== undefined)
+      facts.push(`Chlorophyll: EXACTLY ${marine.chlorophyll} mg/m³ — cite verbatim`);
+  } else {
+    facts.push("PFZ data: not requested or not available for this query (do not invent a distance)");
   }
   if (weather) {
     facts.push(
@@ -148,12 +178,19 @@ async function generateWithOllama(
         ? `Active alerts: ${weather.alerts.join(", ")}`
         : "Active alerts: none",
     );
+    if (weather.reasoning.includes("high tide")) {
+      const tideMatch = weather.reasoning.match(/high tide.*?IST.*?low.*?IST.*?(?:—|–)/i);
+      if (tideMatch) facts.push(`Tide: ${tideMatch[0].trim()} — cite the clock times verbatim`);
+      else facts.push("Tide: prediction available in reasoning — cite the IST times verbatim");
+    }
+    if (weather.reasoning.includes("cache is") || weather.reasoning.includes("stale")) {
+      facts.push("Note: IMD cache staleness warning present in reasoning — surface it briefly if relevant");
+    }
   }
   const prompt =
     "You are Varuna, a marine safety assistant speaking directly to a fisherman. " +
-    "Given this marine data and weather risk JSON, write a 2-3 sentence conversational " +
-    "safety answer for a fisherman, citing the specific numbers " +
-    "(PFZ distance, wave height, wind speed, sea surface temperature). " +
+    `Dominant intent is ${dom}. ${framing} ` +
+    "Cite the specific numbers from KEY FACTS verbatim. " +
     "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
     "never as avoidance (never say 'stay away/clear/at least X km from the zone'). " +
     "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
@@ -181,20 +218,21 @@ async function generateWithOllama(
     const data = (await response.json()) as { response?: string };
     const text = (data.response || "").trim();
     if (!text) throw new Error("Ollama returned empty response");
-    return text;
+    return { text, via: "llm" as const };
   } catch (err) {
     console.error("[synthesizeResponse] LLM failed, using template:", err);
-    return fallback;
+    return { text: fallback, via: "template" as const };
   }
 }
 
 export async function synthesizeResponse(
   state: SynthesisInput,
 ): Promise<FinalResponse> {
-  console.log(`[synthesizeResponse] called for ${state.region.name}`);
+  console.log(`[synthesizeResponse] called for ${state.region.name} intents=${state.intents.join(",")}`);
   const mapMarkers = buildMapMarkers(state);
-  const evidence = buildEvidence(state);
+  const evidenceBase = buildEvidence(state);
   const fallback = buildTemplateText(state);
-  const text = await generateWithOllama(state, fallback);
+  const { text, via } = await generateWithOllama(state, fallback);
+  const evidence = [...evidenceBase, `synthesis: ${via} (${OLLAMA_MODEL}) — ${via === "llm" ? "verbatim-grounded" : "template fallback"}`];
   return { text, mapMarkers, evidence };
 }

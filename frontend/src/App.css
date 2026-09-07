@@ -141,6 +141,32 @@
   cursor: default;
 }
 
+.intent-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.intent-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  color: var(--text-h);
+  text-transform: lowercase;
+}
+
+.via-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  color: #2563eb;
+}
+
 .chat-input {
   display: flex;
   gap: 8px;
@@ -212,6 +238,14 @@
 
 .dot-hazard {
   background: #dc2626;
+}
+
+.map-hint {
+  padding: 6px 14px;
+  font-size: 12px;
+  opacity: 0.7;
+  border-top: 1px dashed var(--border);
+  margin: 0;
 }
 
 /* ---- Trace ---- */
