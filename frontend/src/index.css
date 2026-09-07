@@ -4,7 +4,9 @@
   --text-muted: #6b7d93;
   --bg: #eef3f8;
   --surface: #ffffff;
+  --surface-2: #f6f9fc;
   --border: #dbe4ee;
+  --hairline: rgba(11, 30, 51, 0.08);
   --code-bg: #f1f5f9;
   --accent: #0b5fa5;
   --accent-strong: #083f6e;
@@ -12,14 +14,23 @@
   --accent-border: rgba(11, 95, 165, 0.35);
   --teal: #0e7c7b;
   --success: #15803d;
+  --success-bg: rgba(21, 128, 61, 0.1);
   --warning: #b45309;
+  --warning-bg: rgba(180, 83, 9, 0.1);
   --danger: #b91c1c;
-  --card-shadow: 0 1px 2px rgba(11, 30, 51, 0.06), 0 8px 24px -12px rgba(11, 30, 51, 0.25);
-  --radius: 14px;
+  --danger-bg: rgba(185, 28, 28, 0.08);
+  --card-shadow:
+    0 1px 2px rgba(11, 30, 51, 0.05),
+    0 4px 12px -4px rgba(11, 30, 51, 0.1),
+    0 16px 40px -16px rgba(11, 30, 51, 0.18);
+  --radius: 18px;
+  --radius-sm: 12px;
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 200ms;
 
-  --sans: "Inter", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --heading: "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --heading: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", "Cascadia Code", Consolas, monospace;
 
   font: 16px/150% var(--sans);
   letter-spacing: 0.1px;
@@ -39,6 +50,7 @@
     --text-muted: #8fa1b7;
     --bg: #0a1422;
     --surface: #111e32;
+    --surface-2: #1a2740;
     --border: #23344d;
     --code-bg: #182742;
     --accent: #5aa9e6;
@@ -85,4 +97,55 @@ code {
   background: var(--code-bg);
   color: var(--text-h);
   border: 1px solid var(--border);
+}
+
+/* ---- Calm motion system (Apple-like ease, reduced-motion safe) ---- */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes typing-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+@keyframes pin-drop {
+  from { opacity: 0; transform: translateY(-10px) scale(0.8); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes meter-sweep {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+@keyframes spark-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes region-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.5); }
+  100% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+}
+
+.anim-rise { animation: rise-in var(--dur) var(--ease) both; }
+.anim-fade { animation: fade-in var(--dur) var(--ease) both; }
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

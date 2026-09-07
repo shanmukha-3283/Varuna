@@ -192,8 +192,9 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
           </div>
         ))}
         {loading && (
-          <div className="bubble bubble-assistant typing">
-            Varuna is reasoning… ({elapsed}s)
+          <div className="bubble bubble-assistant" aria-live="polite" aria-label={`Varuna is reasoning, ${elapsed} seconds elapsed`}>
+            <span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>
+            <span className="typing-elapsed">{elapsed}s</span>
           </div>
         )}
         <div ref={bottomRef} />
@@ -223,7 +224,7 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
           type="text"
           value={draft}
           placeholder={
-            loading ? "Type a new question to supersede this one…" : "Ask about fishing zones, safety, weather…"
+            loading ? "Type a new question to supersede this one…" : "Ask about fishing, safety, weather…"
           }
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Your question"

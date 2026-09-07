@@ -39,7 +39,7 @@ function Spark({ values, color, label }: { values: number[]; color: string; labe
     <div className="spark-block">
       <div className="kv"><span>{label}</span><strong>{min.toFixed(1)} – {max.toFixed(1)}</strong></div>
       <svg viewBox={`0 0 ${w} ${h}`} className="spark" role="img" aria-label={`${label} 7-day trend`}>
-        <polyline points={pts} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        <polyline points={pts} pathLength={1} fill="none" stroke={color} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
       </svg>
     </div>
   );
@@ -98,9 +98,9 @@ export default function SafetyPanels({ latest }: { latest: QueryState | null }) 
   return (
     <section className="safety-grid" aria-label="Safety details">
       {weather && (
-        <div className="card">
-          <div className="card-head">
-            <h3>Sea safety</h3>
+        <div className={`card tone-${weather.verdict}`}>
+          <div className="card-head tone-head">
+            <h3>🌊 Sea safety</h3>
             <span className={`verdict-pill verdict-${weather.verdict}`}>{weather.verdict.toUpperCase()}</span>
           </div>
           <div className="kv"><span>Waves</span><strong>{weather.waveHeightM} m</strong></div>
@@ -117,9 +117,9 @@ export default function SafetyPanels({ latest }: { latest: QueryState | null }) 
       )}
 
       {marine && (
-        <div className="card">
-          <div className="card-head">
-            <h3>Ocean productivity</h3>
+        <div className="card tone-info">
+          <div className="card-head tone-head">
+            <h3>🪸 Ocean productivity</h3>
             {prod && <span className="pill" style={{ borderColor: prod.tone, color: prod.tone }}>{prod.label.split(" — ")[0]}</span>}
           </div>
           <div className="kv"><span>SST</span><strong>{marine.sstCelsius}°C</strong></div>

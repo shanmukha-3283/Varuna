@@ -23,6 +23,8 @@ function App() {
   const [userLocation, setUserLocation] = useState<typeof DEFAULT_REGION | null>(null);
   const [alertBanner, setAlertBanner] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
+  const [dashTab, setDashTab] = useState<"map" | "safety" | "trace">("map");
+  const [regionPulse, setRegionPulse] = useState(0);
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
 
@@ -95,7 +97,12 @@ function App() {
       setLatest(result);
       // Auto-sync: the visible pin follows the resolved spot so follow-up
       // queries without a place-name stay in Kakinada (not sticky Vizag).
-      if (result.region) setCurrentRegion(result.region);
+      if (result.region) {
+        setCurrentRegion((prev) => {
+          if (prev.name !== result.region.name) setRegionPulse((n) => n + 1);
+          return result.region;
+        });
+      }
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
       setMessages((m) => [
         ...m,
@@ -140,7 +147,7 @@ function App() {
           <span className={`status-pill ${backendUp === false ? "down" : backendUp ? "up" : "unknown"}`}>
             {backendUp === false ? "● backend offline" : backendUp ? "● backend live" : "● checking…"}
           </span>
-          <span className="pill">📍 {(latest?.region ?? currentRegion).name}</span>
+          <span className="pill region-pill" key={regionPulse}>📍 {(latest?.region ?? currentRegion).name}</span>
           <span className="pill">🌐 {preferredLanguage}</span>
         </div>
       </header>
@@ -164,15 +171,32 @@ function App() {
           onLanguageChange={setPreferredLanguage}
         />
         <div className="side">
-          <MapView
-            region={latest?.region ?? currentRegion}
-            markers={latest?.finalResponse?.mapMarkers ?? []}
-            userLocation={userLocation}
-            onRegionChange={setCurrentRegion}
-            onUserLocation={setUserLocation}
-          />
-          <SafetyPanels latest={latest} />
-          <ExecutionTrace trace={latest?.executionTrace ?? []} />
+          <div className="dash-tabs" role="tablist" aria-label="Dashboard views">
+            {(["map", "safety", "trace"] as const).map((t) => (
+              <button
+                key={t}
+                role="tab"
+                aria-selected={dashTab === t}
+                className={`dash-tab ${dashTab === t ? "active" : ""}`}
+                onClick={() => setDashTab(t)}
+              >
+                {t === "map" ? "🗺 Map" : t === "safety" ? "🛟 Safety" : "⚙ Trace"}
+              </button>
+            ))}
+          </div>
+          <div className="dash-panel anim-fade" key={dashTab}>
+            {dashTab === "map" && (
+              <MapView
+                region={latest?.region ?? currentRegion}
+                markers={latest?.finalResponse?.mapMarkers ?? []}
+                userLocation={userLocation}
+                onRegionChange={setCurrentRegion}
+                onUserLocation={setUserLocation}
+              />
+            )}
+            {dashTab === "safety" && <SafetyPanels latest={latest} />}
+            {dashTab === "trace" && <ExecutionTrace trace={latest?.executionTrace ?? []} />}
+          </div>
         </div>
       </main>
 

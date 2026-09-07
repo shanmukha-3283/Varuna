@@ -167,7 +167,7 @@ export default function MapView({ region, markers, userLocation, onRegionChange,
         <Polyline positions={IMBL_PALK} pathOptions={{ color: "#dc2626", weight: 2, dashArray: "6 4" }} />
         <Polyline positions={IMBL_OFFSHORE} pathOptions={{ color: "#dc2626", weight: 2, dashArray: "6 4", opacity: 0.7 }} />
         <Polygon positions={MANNAR} pathOptions={{ color: "#d97706", weight: 1.5, fillOpacity: 0.08 }} />
-        <Polygon positions={VIZAG_ZONE} pathOptions={{ color: "#0b5fa5", weight: 1.5, fillOpacity: 0.06 }} />
+        <Polygon positions={VIZAG_ZONE} pathOptions={{ color: "#0b5fa5", weight: 1, dashArray: "3 4", fillOpacity: 0.04 }} />
         <Marker
           position={[center.lat, center.lon]}
           icon={pinIcon}
