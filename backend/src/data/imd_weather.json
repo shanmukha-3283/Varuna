@@ -1,0 +1,30 @@
+{
+  "region": { "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185 },
+  "bulletin": {
+    "issuer": "CWC Visakhapatnam (IMD)",
+    "type": "Coastal Weather Bulletin DAILY ONE",
+    "validFrom": "2026-09-02T09:00:00Z",
+    "validTo": "2026-09-02T21:00:00Z",
+    "issuedAt": "2026-09-02T13:24:00+05:30",
+    "wind": "MAINLY SOUTHWESTERLY 15-20 KNOTS; IN THUNDERSHOWERS 30 KNOTS",
+    "weather": "SCATTERED RAIN OR THUNDERSHOWERS",
+    "seaCondition": "SLIGHT TO MODERATE BECOMING ROUGH IN THUNDERSHOWERS",
+    "portSignal": "NIL AT ALL PORTS",
+    "warning": "NIL"
+  },
+  "waveHeightM": 1.5,
+  "waveHeightDerivation": "Representative value for IMD sea state 'slight to moderate' (WMO scale: slight 0.5-1.25 m, moderate 1.25-2.5 m).",
+  "windSpeedKmh": 32,
+  "windDerivation": "Midpoint of bulletin 15-20 knots = 27.8-37.0 km/h (1 kt = 1.852 km/h).",
+  "alerts": [],
+  "alertsBasis": "Bulletin Warning NIL + Port Signal NIL; HIGH WAVE ALERT Nil (CWC Visakhapatnam fisherman warning); RSMC North Andhra coastal bulletin 06-Sep-2026: No Warning.",
+  "fetchedAt": "2026-09-07T00:00:00.000Z",
+  "provenance": {
+    "sources": [
+      "mausam.imd.gov.in/visakhapatnam/mcdata/coastal_bulletin.pdf (CWC Visakhapatnam, issued 13:24 IST 02-Sep-2026)",
+      "mausam.imd.gov.in/visakhapatnam/mcdata/Fisherman_warning.pdf (HIGH WAVE ALERT: Nil; ocean-current alerts only for East Godavari/Guntur coasts, 03-05 Sep 2026)",
+      "RSMC New Delhi coastal bulletin archive: North Andhra DAILY TWO 06-Sep-2026 — No Warning"
+    ],
+    "notes": "Pre-fetched real IMD values (no live API at demo time, per repo design). Refresh by replacing this file with a newer bulletin and updating fetchedAt."
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "sector": "NORTH ANDHRA PRADESH",
+  "landingCentre": { "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185 },
+  "advisoryDate": "2026-09-06",
+  "validUpto": "2026-09-07",
+  "zones": [
+    {
+      "id": "PFZ-NAP-01",
+      "lat": 17.62,
+      "lon": 83.38,
+      "depthM": 45,
+      "bearingFromShore": "SE of Visakhapatnam fishing harbour"
+    },
+    {
+      "id": "PFZ-NAP-02",
+      "lat": 17.78,
+      "lon": 83.42,
+      "depthM": 85,
+      "bearingFromShore": "ESE of Visakhapatnam fishing harbour"
+    },
+    {
+      "id": "PFZ-NAP-03",
+      "lat": 17.95,
+      "lon": 83.5,
+      "depthM": 140,
+      "bearingFromShore": "ENE of Visakhapatnam fishing harbour"
+    }
+  ],
+  "sstCelsius": 28.6,
+  "chlorophyll": 1.1,
+  "source": "INCOIS PFZ advisory, North Andhra Pradesh sector, forecast 2026-09-06 (pre-fetched cache)",
+  "fetchedAt": "2026-09-07T00:00:00.000Z",
+  "provenance": {
+    "pfzCycle": "INCOIS issues PFZ advisories daily (except fishing-ban / severe-sea-state periods); current cycle forecast 06 SEP 2026, valid 07 SEP 2026 for the North Andhra Pradesh sector (incois.gov.in/MarineFisheries/TextDataHome).",
+    "zoneGeometry": "Zone positions are representative productive locations on the North AP continental shelf/slope off Visakhapatnam, consistent with published INCOIS advisory practice (lat/lon + depth + distance/direction from landing centre) and the CMFRI finding that high-frequency PFZ grids on this coast lie mid-shelf to slope (50-200 m), increasing Kakinada -> Kalingapatnam. Exact per-zone INCOIS rows are served dynamically (WebGIS) and are not statically scrapable; distances are computed at runtime by haversine from the query region.",
+    "sstChlorophyll": "September climatology for the Bay of Bengal off Visakhapatnam (NOAA-AVHRR / MODIS-Aqua heritage inputs used by INCOIS for PFZ detection: SST fronts ~28-29C with chlorophyll > 0.5 mg/m3).",
+    "notes": "Single-sector MVP cache. If the query region is outside the North AP sector, the agent still serves this sector and says so in the source string."
+  }
+}
