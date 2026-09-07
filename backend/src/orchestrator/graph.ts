@@ -42,24 +42,23 @@ async function parseIntentNode(
 ): Promise<Partial<GraphStateType>> {
   console.log("[graph] parseIntent");
   
-  const language = await detectLanguage(state.userQuery);
+  const inputLanguage = await detectLanguage(state.userQuery);
   let translatedQuery = state.userQuery;
   let originalQuery = undefined;
   
-  if (language !== "English") {
+  if (inputLanguage !== "English") {
     originalQuery = state.userQuery;
-    translatedQuery = await translateToEnglish(state.userQuery, language);
+    translatedQuery = await translateToEnglish(state.userQuery, inputLanguage);
     console.log(`[graph] Translated query to English: ${translatedQuery}`);
   }
 
-  const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || []);
+  const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || [], state.region);
   const action = source === "llm" ? "parse_intent" : "parse_intent_fallback";
   return {
     userQuery: translatedQuery,
     originalQuery,
     region,
     intents,
-    language,
     executionTrace: trace(state, "intentParser", action),
   };
 }
@@ -116,7 +115,7 @@ async function callGeofenceAgentNode(
 async function callRouteAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
-  if (!state.intents.includes("route_advice")) {
+  if (!state.intents.includes("route_advice") && !state.intents.includes("pfz_lookup")) {
     console.log("[graph] skipRouteAgent (intent not present)");
     return {
       executionTrace: trace(state, "routeAgent", "skip_route_optimization"),
@@ -169,15 +168,15 @@ const workflow = new StateGraph(GraphState)
 
 export const graph = workflow.compile();
 
-export async function runQuery(userQuery: string, chatHistory: { role: string; text: string }[] = []): Promise<QueryState> {
+export async function runQuery(userQuery: string, chatHistory: { role: string; text: string }[] = [], preferredLanguage: string = "English", currentRegion?: QueryState["region"]): Promise<QueryState> {
   const result = await graph.invoke({
     chatHistory,
     userQuery,
     originalQuery: undefined,
-    region: { name: "", lat: 0, lon: 0 },
+    region: currentRegion || { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
     timestamp: new Date().toISOString(),
     intents: [],
-    language: "",
+    language: preferredLanguage,
     executionTrace: [],
   });
   return result as QueryState;

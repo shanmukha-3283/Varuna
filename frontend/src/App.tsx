@@ -17,13 +17,15 @@ function App() {
   const [latest, setLatest] = useState<QueryState | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingSince, setLoadingSince] = useState<number | null>(null);
+  const [preferredLanguage, setPreferredLanguage] = useState("English");
+  const [currentRegion, setCurrentRegion] = useState(DEFAULT_REGION);
   const inFlight = useRef<AbortController | null>(null);
 
   // Proactive Alerts Polling
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const region = latest?.region ?? DEFAULT_REGION;
+        const region = latest?.region ?? currentRegion;
         const res = await fetch(`${API_BASE}/api/check_alerts?lat=${region.lat}&lon=${region.lon}`);
         if (!res.ok) return;
         const data = await res.json();
@@ -41,7 +43,7 @@ function App() {
       }
     }, 30000); // Poll every 30 seconds
     return () => clearInterval(interval);
-  }, [latest?.region]);
+  }, [latest?.region, currentRegion]);
 
   async function handleSend(userQuery: string) {
     const q = userQuery.trim();
@@ -59,7 +61,7 @@ function App() {
         .filter(m => m.role !== "error")
         .map(m => ({ role: m.role, text: m.text }));
         
-      const result = await queryBackend(q, chatHistory, controller.signal);
+      const result = await queryBackend(q, chatHistory, preferredLanguage, currentRegion, controller.signal);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
@@ -100,11 +102,19 @@ function App() {
       </header>
 
       <main className="app-main">
-        <ChatPanel messages={messages} loading={loading} loadingSince={loadingSince} onSend={handleSend} />
+        <ChatPanel 
+          messages={messages} 
+          loading={loading} 
+          loadingSince={loadingSince} 
+          onSend={handleSend} 
+          preferredLanguage={preferredLanguage}
+          onLanguageChange={setPreferredLanguage}
+        />
         <div className="side">
           <MapView
-            region={latest?.region ?? DEFAULT_REGION}
+            region={latest?.region ?? currentRegion}
             markers={latest?.finalResponse?.mapMarkers ?? []}
+            onRegionChange={setCurrentRegion}
           />
           <ExecutionTrace trace={latest?.executionTrace ?? []} />
         </div>

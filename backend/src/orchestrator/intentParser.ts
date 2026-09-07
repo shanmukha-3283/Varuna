@@ -35,17 +35,18 @@ function inferIntents(query: string): string[] {
   return intents.length > 0 ? intents : ["safety_check"];
 }
 
-function inferRegion(query: string): Region | null {
+function inferRegion(query: string, defaultRegion: Region): Region {
   const lower = query.toLowerCase();
   for (const [key, region] of Object.entries(REGION_FALLBACKS)) {
     if (lower.includes(key)) return region;
   }
-  return null;
+  return defaultRegion;
 }
 
 export async function parseIntent(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
+  currentRegion: Region = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 }
 ): Promise<{ region: Region; intents: string[]; source: "llm" | "fallback" }> {
   let historyStr = "";
   if (chatHistory.length > 0) {
@@ -63,7 +64,7 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact shape:
 }
 
 Rules:
-- If no specific region is mentioned, use Visakhapatnam (lat: 17.6868, lon: 83.2185)
+- If no specific region is mentioned, use the current region: ${currentRegion.name} (lat: ${currentRegion.lat}, lon: ${currentRegion.lon})
 - region.name should be a real coastal place name
 - intents must be from the allowed list only
 - Return at least one intent`;
@@ -98,9 +99,9 @@ Rules:
     };
 
     const region: Region = {
-      name: parsed.region?.name || "Visakhapatnam",
-      lat: parsed.region?.lat ?? 17.6868,
-      lon: parsed.region?.lon ?? 83.2185,
+      name: parsed.region?.name || currentRegion.name,
+      lat: parsed.region?.lat ?? currentRegion.lat,
+      lon: parsed.region?.lon ?? currentRegion.lon,
     };
 
     const validIntents = [
@@ -127,11 +128,7 @@ Rules:
     } else {
       console.error("[intentParser] LLM failed, using fallback:", err);
     }
-    const region = inferRegion(userQuery) || {
-      name: "Visakhapatnam",
-      lat: 17.6868,
-      lon: 83.2185,
-    };
+    const region = inferRegion(userQuery, currentRegion);
     const intents = inferIntents(userQuery);
     return { region, intents, source: "fallback" };
   }

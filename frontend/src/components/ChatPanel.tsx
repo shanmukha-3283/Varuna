@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
+// Fallback for browser prefixes
+const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
 export interface ChatMessage {
   role: "user" | "assistant" | "error";
   text: string;
@@ -14,18 +17,92 @@ interface ChatPanelProps {
   loading: boolean;
   loadingSince: number | null;
   onSend: (query: string) => void;
+  preferredLanguage: string;
+  onLanguageChange: (lang: string) => void;
 }
 
 const EXAMPLE_QUERIES = [
   "Where is the nearest Potential Fishing Zone today?",
-  "Is it safe to venture into the sea tomorrow morning?",
-  "Are there any cyclone alerts near Visakhapatnam?",
+  "Find a safe route avoiding weather hazards.",
+  "Am I dangerously close to the Sri Lanka maritime border?",
 ];
 
-export default function ChatPanel({ messages, loading, loadingSince, onSend }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend, preferredLanguage, onLanguageChange }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
+  const [isListening, setIsListening] = useState(false);
+  const [readAloud, setReadAloud] = useState(true);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<any>(null);
+
+  // Initialize Speech Recognition
+  useEffect(() => {
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      
+      let langCode = 'en-IN';
+      if (preferredLanguage === 'Hindi') langCode = 'hi-IN';
+      if (preferredLanguage === 'Telugu') langCode = 'te-IN';
+      if (preferredLanguage === 'Tamil') langCode = 'ta-IN';
+      if (preferredLanguage === 'Bengali') langCode = 'bn-IN';
+      recognition.lang = langCode;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onresult = (event: any) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        
+        if (finalTranscript) {
+          setDraft(prev => (prev ? prev + ' ' : '') + finalTranscript);
+        }
+      };
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+      recognition.onend = () => setIsListening(false);
+      
+      recognitionRef.current = recognition;
+    }
+  }, []);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+    } else {
+      recognitionRef.current?.start();
+    }
+  };
+
+  // Text-to-Speech: Watch for new assistant messages
+  useEffect(() => {
+    if (!readAloud || messages.length === 0) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role === "assistant" && lastMsg.text) {
+      // Don't read the initial greeting again on hot reloads
+      if (messages.length === 1 && lastMsg.text.startsWith("Namaste")) return;
+      
+      const utterance = new SpeechSynthesisUtterance(lastMsg.text);
+      let langCode = 'en-IN';
+      if (preferredLanguage === 'Hindi') langCode = 'hi-IN';
+      if (preferredLanguage === 'Telugu') langCode = 'te-IN';
+      if (preferredLanguage === 'Tamil') langCode = 'ta-IN';
+      if (preferredLanguage === 'Bengali') langCode = 'bn-IN';
+      utterance.lang = langCode;
+      window.speechSynthesis.cancel(); // Stop any current speech
+      window.speechSynthesis.speak(utterance);
+    }
+  }, [messages, readAloud]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -54,6 +131,29 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend }: C
 
   return (
     <section className="chat-panel" aria-label="Chat">
+      <div className="chat-header-actions">
+        <select 
+          value={preferredLanguage} 
+          onChange={(e) => onLanguageChange(e.target.value)}
+          className="language-select"
+        >
+          <option value="English">English</option>
+          <option value="Hindi">हिंदी (Hindi)</option>
+          <option value="Telugu">తెలుగు (Telugu)</option>
+          <option value="Tamil">தமிழ் (Tamil)</option>
+          <option value="Bengali">বাংলা (Bengali)</option>
+        </select>
+        <button 
+          className={`toggle-btn ${readAloud ? 'active' : ''}`}
+          onClick={() => {
+            setReadAloud(!readAloud);
+            if (readAloud) window.speechSynthesis.cancel();
+          }}
+          title={readAloud ? "Mute Voice Responses" : "Enable Voice Responses"}
+        >
+          {readAloud ? "🔊 Voice On" : "🔈 Voice Off"}
+        </button>
+      </div>
       <div className="chat-messages">
         {messages.map((m, i) => (
           <div key={i} className={`bubble bubble-${m.role}`}>
@@ -116,6 +216,16 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend }: C
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Your question"
         />
+        {SpeechRecognition && (
+          <button 
+            type="button" 
+            className={`mic-btn ${isListening ? 'listening' : ''}`}
+            onClick={toggleListening}
+            title="Speak"
+          >
+            🎤
+          </button>
+        )}
         <button type="submit" disabled={!draft.trim()}>
           Send
         </button>

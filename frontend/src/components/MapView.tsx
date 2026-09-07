@@ -1,9 +1,10 @@
-import { CircleMarker, MapContainer, Popup, TileLayer, Polyline } from "react-leaflet";
+import { CircleMarker, MapContainer, Popup, TileLayer, Polyline, useMapEvents } from "react-leaflet";
 import type { MapMarker, Region } from "../api.ts";
 
 interface MapViewProps {
   region: Region;
   markers: MapMarker[];
+  onRegionChange?: (region: Region) => void;
 }
 
 const DEFAULT_REGION: Region = {
@@ -19,7 +20,27 @@ function markerColor(type: string): string {
   return "#2563eb";
 }
 
-export default function MapView({ region, markers }: MapViewProps) {
+function MapEvents({ onRegionChange }: { onRegionChange?: (r: Region) => void }) {
+  useMapEvents({
+    click(e) {
+      if (!onRegionChange) return;
+      const { lat, lng } = e.latlng;
+      // Reverse geocode to get a rough name
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+        .then(r => r.json())
+        .then(data => {
+          const name = data.address?.city || data.address?.town || data.address?.village || data.address?.county || "Coastal Region";
+          onRegionChange({ name, lat, lon: lng });
+        })
+        .catch(() => {
+          onRegionChange({ name: "Selected Location", lat, lon: lng });
+        });
+    }
+  });
+  return null;
+}
+
+export default function MapView({ region, markers, onRegionChange }: MapViewProps) {
   const center = region ?? DEFAULT_REGION;
   return (
     <section className="map-panel" aria-label="Map">
@@ -34,6 +55,7 @@ export default function MapView({ region, markers }: MapViewProps) {
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
+        <MapEvents onRegionChange={onRegionChange} />
         <CircleMarker
           center={[center.lat, center.lon]}
           radius={9}

@@ -120,6 +120,8 @@ function mockResponse(userQuery: string): QueryState {
 export async function queryBackend(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
+  preferredLanguage: string = "English",
+  currentRegion?: Region,
   outerSignal?: AbortSignal,
 ): Promise<QueryState> {
   if (USE_MOCK) {
@@ -139,7 +141,7 @@ export async function queryBackend(
     const res = await fetch(`${API_BASE}/api/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userQuery, chatHistory }),
+      body: JSON.stringify({ userQuery, chatHistory, preferredLanguage, currentRegion }),
       signal: controller.signal,
     });
     if (!res.ok) {

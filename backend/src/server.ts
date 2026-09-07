@@ -37,14 +37,14 @@ app.get("/api/intents", async (c) => {
 
 app.post("/api/query", async (c) => {
   try {
-    const body = await c.req.json<{ userQuery?: string, chatHistory?: { role: string; text: string }[] }>();
+    const body = await c.req.json<{ userQuery?: string, chatHistory?: { role: string; text: string }[], preferredLanguage?: string, currentRegion?: { name: string; lat: number; lon: number } }>();
     if (!body.userQuery || typeof body.userQuery !== "string") {
       return c.json({ error: "Missing or invalid 'userQuery' field" }, 400);
     }
 
-    console.log(`[server] POST /api/query — "${body.userQuery}"`);
+    console.log(`[server] POST /api/query — "${body.userQuery}" (${body.preferredLanguage || 'English'}) at ${body.currentRegion?.name || 'Visakhapatnam'}`);
     const t0 = Date.now();
-    const result = await runQuery(body.userQuery, body.chatHistory || []);
+    const result = await runQuery(body.userQuery, body.chatHistory || [], body.preferredLanguage || "English", body.currentRegion);
     const dt = Date.now() - t0;
     const intentAction = result.executionTrace[0]?.action ?? "unknown";
     const marineAction = result.executionTrace[1]?.action ?? "unknown";
