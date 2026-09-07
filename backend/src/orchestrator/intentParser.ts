@@ -45,7 +45,7 @@ function inferRegion(query: string): Region | null {
 
 export async function parseIntent(
   userQuery: string,
-): Promise<{ region: Region; intents: string[] }> {
+): Promise<{ region: Region; intents: string[]; source: "llm" | "fallback" }> {
   const prompt = `Extract structured data from this marine/fishing query.
 
 QUERY: "${userQuery}"
@@ -113,7 +113,7 @@ Rules:
 
     if (intents.length === 0) intents.push("safety_check");
 
-    return { region, intents };
+    return { region, intents, source: "llm" };
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -127,6 +127,6 @@ Rules:
       lon: 83.2185,
     };
     const intents = inferIntents(userQuery);
-    return { region, intents };
+    return { region, intents, source: "fallback" };
   }
 }

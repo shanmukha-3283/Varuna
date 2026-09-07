@@ -44,8 +44,14 @@ async function run(name: string, query: string): Promise<QueryState> {
     "each trace entry has agent/action/timestamp",
   );
 
-  assert(Array.isArray(state.marineData?.pfzZones), "marineData.pfzZones present");
-  assert(typeof state.marineData?.source === "string", "marineData.source present");
+  const marineTrace = state.executionTrace.find((t) => t.agent === "marineDataAgent");
+  const marineSkipped = marineTrace?.action.startsWith("skip_marine_data") ?? false;
+  if (marineSkipped) {
+    assert(state.marineData === undefined, "marineData correctly skipped for non-marine intent");
+  } else {
+    assert(Array.isArray(state.marineData?.pfzZones), "marineData.pfzZones present");
+    assert(typeof state.marineData?.source === "string", "marineData.source present");
+  }
 
   const verdict = state.weatherRisk?.verdict;
   assert(

@@ -41,7 +41,14 @@ app.post("/api/query", async (c) => {
     }
 
     console.log(`[server] POST /api/query — "${body.userQuery}"`);
+    const t0 = Date.now();
     const result = await runQuery(body.userQuery);
+    const dt = Date.now() - t0;
+    const intentAction = result.executionTrace[0]?.action ?? "unknown";
+    const marineAction = result.executionTrace[1]?.action ?? "unknown";
+    console.log(
+      `[server] query done in ${dt}ms — intent:${intentAction} marine:${marineAction} verdict:${result.weatherRisk?.verdict} trace:${result.executionTrace.map((e) => e.agent).join("->")}`,
+    );
     return c.json(result);
   } catch (err) {
     console.error("[server] Error:", err);

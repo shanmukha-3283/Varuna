@@ -33,17 +33,34 @@ async function parseIntentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   console.log("[graph] parseIntent");
-  const { region, intents } = await parseIntent(state.userQuery);
+  const { region, intents, source } = await parseIntent(state.userQuery);
+  const action = source === "llm" ? "parse_intent" : "parse_intent_fallback";
   return {
     region,
     intents,
-    executionTrace: trace(state, "intentParser", "parse_intent"),
+    executionTrace: trace(state, "intentParser", action),
   };
+}
+
+const MARINE_INTENTS = new Set(["pfz_lookup", "chlorophyll_sst", "route_advice"]);
+
+function needsMarine(intents: string[]): boolean {
+  return intents.some((i) => MARINE_INTENTS.has(i));
 }
 
 async function callMarineAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
+  if (!needsMarine(state.intents)) {
+    console.log(`[graph] skipMarineAgent (intents: ${state.intents.join(",")})`);
+    return {
+      executionTrace: trace(
+        state,
+        "marineDataAgent",
+        `skip_marine_data (intent: ${state.intents.join(",")})`,
+      ),
+    };
+  }
   console.log("[graph] callMarineAgent");
   const marineData = await getMarineData(state.region);
   return {
