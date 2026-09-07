@@ -54,6 +54,10 @@ assert(
   check.mapMarkers.some((m) => m.type === "hazard"),
   "hazard marker present for caution verdict",
 );
+assert(
+  /^synthesis: (llm|template)$/.test(check.evidence[check.evidence.length - 1] ?? ""),
+  "evidence ends with provenance tag 'synthesis: llm|template'",
+);
 
 console.log("synthesis test PASSED");
 console.log(JSON.stringify(result, null, 2));

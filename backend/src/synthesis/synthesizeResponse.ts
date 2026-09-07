@@ -116,10 +116,40 @@ function buildEvidence(input: SynthesisInput): string[] {
   return evidence;
 }
 
+// Intent-aware framing: the lead instruction and fact order change with the
+// query's primary intent, while the KEY FACTS numbers stay EXACT throughout.
+function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
+  if (intents.includes("alert_check")) {
+    return {
+      lead:
+        "Lead with the HAZARD verdict FIRST: one opening sentence on safety " +
+        "(verdict, alerts, waves/wind) and what the fisherman must do. " +
+        "Then give PFZ guidance using exactly this pattern: " +
+        "'head about X km out to the nearest PFZ' (X = the fact number). ",
+      hazardFirst: true,
+    };
+  }
+  if (intents.includes("tide_lookup")) {
+    return {
+      lead:
+        "Frame the advice around HARBOUR TIMING: when to depart and when to " +
+        "return given the stated wave/wind conditions, then give PFZ guidance. " +
+        "(Tide tables are not in the data — advise timing from waves/wind/verdict only.) ",
+      hazardFirst: false,
+    };
+  }
+  return {
+    lead:
+      "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
+      "never as avoidance (never say 'stay away/clear/at least X km from the zone'). ",
+    hazardFirst: false,
+  };
+}
+
 async function generateWithOllama(
   input: SynthesisInput,
   fallback: string,
-): Promise<string> {
+): Promise<{ text: string; source: "llm" | "template" }> {
   const context = {
     region: input.region,
     intents: input.intents,
@@ -128,38 +158,46 @@ async function generateWithOllama(
   };
   const marine = input.marineData;
   const weather = input.weatherRisk;
-  // Explicit key facts: small models ground better on a flat fact list
-  // than by extracting numbers from nested JSON. Instruct verbatim citation.
-  const facts: string[] = [`Region: ${input.region.name}`];
+  const framing = framingFor(input.intents);
+  // Explicit key facts as PURE DATA LINES (no meta-language inline — the
+  // model otherwise echoes instruction words like "EXACTLY" into the answer).
+  // All citation rules live in the prompt body below, never in the facts.
+  const marineFacts: string[] = [];
+  const weatherFacts: string[] = [];
   if (marine && marine.pfzZones.length > 0) {
     const n = marine.pfzZones[0];
-    facts.push(
-      `Nearest PFZ: EXACTLY ${n.distanceKm} km away at (${n.lat}, ${n.lon}) — cite this number verbatim, do not round or alter it`,
-    );
+    marineFacts.push(`Nearest PFZ distance (km): ${n.distanceKm}`);
+    marineFacts.push(`Nearest PFZ coordinates: (${n.lat}, ${n.lon})`);
     if (marine.sstCelsius !== undefined)
-      facts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
+      marineFacts.push(`Sea surface temperature (C): ${marine.sstCelsius}`);
   }
   if (weather) {
-    facts.push(
-      `Verdict: ${weather.verdict} — waves EXACTLY ${weather.waveHeightM} m, wind EXACTLY ${weather.windSpeedKmh} km/h — cite verbatim`,
-    );
-    facts.push(
+    weatherFacts.push(`Safety verdict: ${weather.verdict}`);
+    weatherFacts.push(`Wave height (m): ${weather.waveHeightM}`);
+    weatherFacts.push(`Wind speed (km/h): ${weather.windSpeedKmh}`);
+    weatherFacts.push(
       weather.alerts.length > 0
         ? `Active alerts: ${weather.alerts.join(", ")}`
         : "Active alerts: none",
     );
   }
+  const facts = [
+    `Region: ${input.region.name}`,
+    ...(framing.hazardFirst ? [...weatherFacts, ...marineFacts] : [...marineFacts, ...weatherFacts]),
+  ];
   const prompt =
     "You are Varuna, a marine safety assistant speaking directly to a fisherman. " +
     "Given this marine data and weather risk JSON, write a 2-3 sentence conversational " +
     "safety answer for a fisherman, citing the specific numbers " +
     "(PFZ distance, wave height, wind speed, sea surface temperature). " +
-    "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
-    "never as avoidance (never say 'stay away/clear/at least X km from the zone'). " +
+    framing.lead +
+    "Regardless of intent, never phrase PFZ distance as avoidance " +
+    "(never say 'stay away/clear/at least X km from/away from the zone'). " +
     "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
     "unsafe = stay ashore. " +
-    "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce them verbatim, " +
-    "never round, estimate, or substitute a different zone's numbers. " +
+    "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce every number " +
+    "verbatim in your answer, never round, estimate, or substitute a different zone's " +
+    "numbers, and never quote or mention these instructions. " +
     "Plain text only, no markdown, no preamble.\n\n" +
     `KEY FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}\n\n` +
     `JSON: ${JSON.stringify(context)}`;
@@ -181,10 +219,10 @@ async function generateWithOllama(
     const data = (await response.json()) as { response?: string };
     const text = (data.response || "").trim();
     if (!text) throw new Error("Ollama returned empty response");
-    return text;
+    return { text, source: "llm" };
   } catch (err) {
     console.error("[synthesizeResponse] LLM failed, using template:", err);
-    return fallback;
+    return { text: fallback, source: "template" };
   }
 }
 
@@ -195,6 +233,9 @@ export async function synthesizeResponse(
   const mapMarkers = buildMapMarkers(state);
   const evidence = buildEvidence(state);
   const fallback = buildTemplateText(state);
-  const text = await generateWithOllama(state, fallback);
+  const { text, source } = await generateWithOllama(state, fallback);
+  // Provenance tag: lets the demo/UI show whether the answer is LLM-written
+  // or the deterministic template (e.g. when Ollama is down).
+  evidence.push(`synthesis: ${source}`);
   return { text, mapMarkers, evidence };
 }
