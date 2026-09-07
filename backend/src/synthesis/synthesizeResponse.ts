@@ -116,30 +116,34 @@ function buildEvidence(input: SynthesisInput): string[] {
   return evidence;
 }
 
-function dominantIntent(intents: string[]): string {
-  const order = ["alert_check", "tide_lookup", "safety_check", "pfz_lookup", "chlorophyll_sst", "weather_lookup", "route_advice"];
-  for (const o of order) if (intents.includes(o)) return o;
-  return intents[0] ?? "safety_check";
-}
-
-function intentFraming(intent: string): string {
-  switch (intent) {
-    case "alert_check":
-      return "Lead with the hazard first: state the verdict (safe/caution/unsafe) and any alerts immediately, then mention PFZ only if it exists and with caution. Prioritize safety over fishing opportunity.";
-    case "tide_lookup":
-      return "Emphasize harbour timing: surface the tide times (next high/low IST) from the reasoning, advise planning departures around slack water (high tide), then mention sea conditions.";
-    case "pfz_lookup":
-      return "Focus on WHERE TO GO: present the PFZ distance and coordinates as a fishing opportunity, cite SST and chlorophyll if available, then add the safety caveat per verdict.";
-    case "chlorophyll_sst":
-      return "Focus on ocean productivity: cite SST and chlorophyll values and what they mean for fish likelihood, then ground with PFZ distance and safety verdict.";
-    case "weather_lookup":
-      return "Focus on weather details: cite wind, waves, and sea condition, then relate to fishing safety and PFZ if present.";
-    case "route_advice":
-      return "Frame as route guidance: suggest heading toward the PFZ bearing while flagging any hazard zones to avoid, per verdict.";
-    case "safety_check":
-    default:
-      return "Provide a balanced safety assessment: start with the verdict, then evidence for PFZ, weather, and tide to support the recommendation.";
+// Intent-aware framing: the lead instruction and fact order change with the
+// query's primary intent, while the KEY FACTS numbers stay EXACT throughout.
+function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
+  if (intents.includes("alert_check")) {
+    return {
+      lead:
+        "Lead with the HAZARD verdict FIRST: one opening sentence on safety " +
+        "(verdict, alerts, waves/wind) and what the fisherman must do. " +
+        "Then give PFZ guidance using exactly this pattern: " +
+        "'head about X km out to the nearest PFZ' (X = the fact number). ",
+      hazardFirst: true,
+    };
   }
+  if (intents.includes("tide_lookup")) {
+    return {
+      lead:
+        "Frame the advice around HARBOUR TIMING: when to depart and when to " +
+        "return given the stated wave/wind conditions, then give PFZ guidance. " +
+        "(Tide tables are not in the data — advise timing from waves/wind/verdict only.) ",
+      hazardFirst: false,
+    };
+  }
+  return {
+    lead:
+      "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
+      "never as avoidance (never say 'stay away/clear/at least X km from the zone'). ",
+    hazardFirst: false,
+  };
 }
 
 async function generateWithOllama(
@@ -154,51 +158,58 @@ async function generateWithOllama(
   };
   const marine = input.marineData;
   const weather = input.weatherRisk;
-  const dom = dominantIntent(input.intents);
-  const framing = intentFraming(dom);
-  const facts: string[] = [`Region: ${input.region.name}`, `Dominant intent: ${dom}`, `Language: ${input.language}`];
+  const framing = framingFor(input.intents);
+  const marineFacts: string[] = [];
+  const weatherFacts: string[] = [];
+  
   if (marine && marine.pfzZones.length > 0) {
     const n = marine.pfzZones[0];
-    facts.push(
-      `Nearest PFZ: EXACTLY ${n.distanceKm} km away at (${n.lat}, ${n.lon}) — cite this number verbatim, do not round or alter it`,
-    );
+    marineFacts.push(`Nearest PFZ distance (km): ${n.distanceKm}`);
+    marineFacts.push(`Nearest PFZ coordinates: (${n.lat}, ${n.lon})`);
     if (marine.sstCelsius !== undefined)
-      facts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
+      marineFacts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
     if (marine.chlorophyll !== undefined)
-      facts.push(`Chlorophyll: EXACTLY ${marine.chlorophyll} mg/m³ — cite verbatim`);
+      marineFacts.push(`Chlorophyll: EXACTLY ${marine.chlorophyll} mg/m³ — cite verbatim`);
   } else {
-    facts.push("PFZ data: not requested or not available for this query (do not invent a distance)");
+    marineFacts.push("PFZ data: not requested or not available for this query (do not invent a distance)");
   }
   if (weather) {
-    facts.push(
-      `Verdict: ${weather.verdict} — waves EXACTLY ${weather.waveHeightM} m, wind EXACTLY ${weather.windSpeedKmh} km/h — cite verbatim`,
-    );
-    facts.push(
+    weatherFacts.push(`Safety verdict: ${weather.verdict}`);
+    weatherFacts.push(`Wave height (m): ${weather.waveHeightM}`);
+    weatherFacts.push(`Wind speed (km/h): ${weather.windSpeedKmh}`);
+    weatherFacts.push(
       weather.alerts.length > 0
         ? `Active alerts: ${weather.alerts.join(", ")}`
         : "Active alerts: none",
     );
     if (weather.reasoning.includes("high tide")) {
       const tideMatch = weather.reasoning.match(/high tide.*?IST.*?low.*?IST.*?(?:—|–)/i);
-      if (tideMatch) facts.push(`Tide: ${tideMatch[0].trim()} — cite the clock times verbatim`);
-      else facts.push("Tide: prediction available in reasoning — cite the IST times verbatim");
+      if (tideMatch) weatherFacts.push(`Tide: ${tideMatch[0].trim()} — cite the clock times verbatim`);
+      else weatherFacts.push("Tide: prediction available in reasoning — cite the IST times verbatim");
     }
     if (weather.reasoning.includes("cache is") || weather.reasoning.includes("stale")) {
-      facts.push("Note: IMD cache staleness warning present in reasoning — surface it briefly if relevant");
+      weatherFacts.push("Note: IMD cache staleness warning present in reasoning — surface it briefly if relevant");
     }
   }
+  const facts = [
+    `Region: ${input.region.name}`,
+    `Language: ${input.language}`,
+    ...(framing.hazardFirst ? [...weatherFacts, ...marineFacts] : [...marineFacts, ...weatherFacts]),
+  ];
   const prompt =
     "You are Varuna, a marine safety assistant speaking directly to a fisherman. " +
-    `Dominant intent is ${dom}. ${framing} ` +
-    "Cite the specific numbers from KEY FACTS verbatim. " +
-    "Frame the PFZ distance as guidance on WHERE TO GO (e.g. 'head about X km out to ...'), " +
-    "never as avoidance (never say 'stay away/clear/at least X km from the zone'). " +
+    "Given this marine data and weather risk JSON, write a 2-3 sentence conversational " +
+    "safety answer for a fisherman, citing the specific numbers " +
+    "(PFZ distance, wave height, wind speed, sea surface temperature). " +
+    framing.lead +
+    "Regardless of intent, never phrase PFZ distance as avoidance " +
+    "(never say 'stay away/clear/at least X km from/away from the zone'). " +
     "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
     "unsafe = stay ashore. " +
     `CRITICAL: Output the final response natively in ${input.language}. Translate the reasoning while keeping the precise numbers intact. ` +
-    "Emphasize that the weather and marine conditions are based on LIVE data and the latest advisories. " +
-    "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce them verbatim, " +
-    "never round, estimate, or substitute a different zone's numbers. " +
+    "CRITICAL: the KEY FACTS below contain the exact numbers — reproduce every number " +
+    "verbatim in your answer, never round, estimate, or substitute a different zone's " +
+    "numbers, and never quote or mention these instructions. " +
     "Plain text only, no markdown, no preamble.\n\n" +
     `KEY FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}\n\n` +
     `JSON: ${JSON.stringify(context)}`;
