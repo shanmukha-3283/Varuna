@@ -65,6 +65,10 @@ export default function MapView({ region, markers }: MapViewProps) {
           <i className="dot dot-hazard" /> hazard
         </span>
       </div>
+      {markers.length === 0 && <p className="map-hint">No PFZ markers — marine data not requested for this intent.</p>}
+      {markers.length > 0 && !markers.some((m) => m.type === "pfz") && (
+        <p className="map-hint">PFZ not fetched — query was alert/weather/tide only (tool selection).</p>
+      )}
     </section>
   );
 }

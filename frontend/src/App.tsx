@@ -33,12 +33,16 @@ function App() {
       const result = await queryBackend(q, controller.signal);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
+      const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
           text: result.finalResponse?.text ?? "I got a response but it had no text.",
           evidence: result.finalResponse?.evidence,
+          intents: result.intents,
+          language: result.language,
+          synthesisVia: viaTag,
         },
       ]);
     } catch (err) {

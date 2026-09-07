@@ -4,6 +4,9 @@ export interface ChatMessage {
   role: "user" | "assistant" | "error";
   text: string;
   evidence?: string[];
+  intents?: string[];
+  synthesisVia?: string;
+  language?: string;
 }
 
 interface ChatPanelProps {
@@ -54,6 +57,15 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend }: C
       <div className="chat-messages">
         {messages.map((m, i) => (
           <div key={i} className={`bubble bubble-${m.role}`}>
+            {m.intents && m.intents.length > 0 && (
+              <div className="intent-badges">
+                {m.intents.map((it) => (
+                  <span key={it} className="intent-badge">{it}</span>
+                ))}
+                {m.language && <span className="intent-badge lang-badge">Lang: {m.language}</span>}
+                {m.synthesisVia && <span className="via-badge">{m.synthesisVia}</span>}
+              </div>
+            )}
             <p>{m.text}</p>
             {m.evidence && m.evidence.length > 0 && (
               <details className="evidence">

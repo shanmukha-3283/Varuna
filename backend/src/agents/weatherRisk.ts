@@ -98,8 +98,8 @@ export function buildReasoning(
       : `Active warning: ${bulletin.warning}.`;
   const seaPart =
     `Sea ${bulletin.seaCondition.toLowerCase()} ` +
-    `(representative wave height ${waveHeightM} m) with ${bulletin.wind.toLowerCase()} ` +
-    `(~${windSpeedKmh} km/h) per ${bulletin.issuer} bulletin issued ${bulletin.issuedAt}.`;
+    `(live wave height ${waveHeightM} m) with live wind ` +
+    `(~${windSpeedKmh} km/h) alongside ${bulletin.issuer} bulletin issued ${bulletin.issuedAt}.`;
   // H3: when the bulletin says the sea can escalate (e.g. "becoming rough
   // in thundershowers"), say so explicitly instead of letting the single
   // representative height under-state the hazard.
@@ -126,27 +126,61 @@ function loadCache(): Cache {
   return CacheSchema.parse(JSON.parse(raw));
 }
 
+async function fetchLiveWeather(lat: number, lon: number): Promise<{ windSpeedKmh: number; waveHeightM: number } | null> {
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=wind_speed_10m`, { signal: ctl.signal });
+    const marineRes = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height`, { signal: ctl.signal });
+    if (!wxRes.ok || !marineRes.ok) throw new Error("API error");
+    const wxBody = await wxRes.json() as any;
+    const marineBody = await marineRes.json() as any;
+    const windSpeedKmh = wxBody.current?.wind_speed_10m;
+    const waveHeightM = marineBody.current?.wave_height;
+    if (typeof windSpeedKmh !== "number" || typeof waveHeightM !== "number") throw new Error("Invalid response");
+    return { windSpeedKmh, waveHeightM };
+  } catch (err) {
+    console.error("[weatherRiskAgent] live weather fetch failed:", err);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
   console.log(`[weatherRiskAgent] getWeatherRisk called for ${region.name}`);
   try {
     const cache = loadCache();
-    const verdict = computeVerdict(cache.waveHeightM, cache.alerts);
+    
+    let waveHeightM = cache.waveHeightM;
+    let windSpeedKmh = cache.windSpeedKmh;
+    let fetchedAt = cache.fetchedAt;
+
+    const liveWeather = await fetchLiveWeather(region.lat, region.lon);
+    if (liveWeather) {
+      waveHeightM = liveWeather.waveHeightM;
+      windSpeedKmh = liveWeather.windSpeedKmh;
+      fetchedAt = new Date().toISOString();
+      console.log(`[weatherRiskAgent] using live weather for ${region.name}: wave ${waveHeightM}m, wind ${windSpeedKmh}km/h`);
+    }
+
+    const verdict = computeVerdict(waveHeightM, cache.alerts);
     let reasoning = buildReasoning(
-      cache.waveHeightM,
-      cache.windSpeedKmh,
+      waveHeightM,
+      windSpeedKmh,
       cache.bulletin,
       verdict,
       cache.waveHeightMaxM,
       cache.tide,
     );
     // H1: never serve an old bulletin silently — say so in the reasoning.
-    const stale = stalenessNote(cache.fetchedAt);
+    const stale = stalenessNote(fetchedAt);
     if (stale) {
       reasoning += ` Note: IMD data is stale (${stale}) — verify with the latest IMD bulletin before venturing out.`;
     }
     return {
-      waveHeightM: cache.waveHeightM,
-      windSpeedKmh: cache.windSpeedKmh,
+      waveHeightM,
+      windSpeedKmh,
       alerts: cache.alerts,
       verdict,
       reasoning,

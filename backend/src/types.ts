@@ -7,6 +7,7 @@ export interface QueryState {
   region: { name: string; lat: number; lon: number };
   timestamp: string;
   intents: string[]; // e.g. ["pfz_lookup", "safety_check"]
+  language: string; // e.g. "English", "Telugu"
 
   marineData?: {
     pfzZones: { lat: number; lon: number; distanceKm: number }[];

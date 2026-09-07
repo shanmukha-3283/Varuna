@@ -10,6 +10,7 @@ const GraphState = Annotation.Root({
   region: Annotation<QueryState["region"]>,
   timestamp: Annotation<string>,
   intents: Annotation<string[]>,
+  language: Annotation<string>,
   marineData: Annotation<QueryState["marineData"] | undefined>,
   weatherRisk: Annotation<QueryState["weatherRisk"] | undefined>,
   executionTrace: Annotation<QueryState["executionTrace"]>,
@@ -33,11 +34,12 @@ async function parseIntentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
   console.log("[graph] parseIntent");
-  const { region, intents, source } = await parseIntent(state.userQuery);
+  const { region, intents, language, source } = await parseIntent(state.userQuery);
   const action = source === "llm" ? "parse_intent" : "parse_intent_fallback";
   return {
     region,
     intents,
+    language,
     executionTrace: trace(state, "intentParser", action),
   };
 }
@@ -87,6 +89,7 @@ async function synthesizeResponseNode(
   const finalResponse = await synthesizeResponse({
     region: state.region,
     intents: state.intents,
+    language: state.language,
     marineData: state.marineData,
     weatherRisk: state.weatherRisk,
   });
@@ -119,6 +122,7 @@ export async function runQuery(userQuery: string): Promise<QueryState> {
     region: { name: "", lat: 0, lon: 0 },
     timestamp: new Date().toISOString(),
     intents: [],
+    language: "",
     executionTrace: [],
   });
   return result as QueryState;
