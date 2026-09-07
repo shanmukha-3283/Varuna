@@ -1,6 +1,10 @@
 {
   "sector": "NORTH ANDHRA PRADESH",
-  "landingCentre": { "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185 },
+  "landingCentre": {
+    "name": "Visakhapatnam",
+    "lat": 17.6868,
+    "lon": 83.2185
+  },
   "advisoryDate": "2026-09-07",
   "validUpto": "2026-09-08",
   "zones": [
@@ -29,11 +33,5 @@
   "sstCelsius": 28.6,
   "chlorophyll": 1.1,
   "source": "INCOIS PFZ advisory, North Andhra Pradesh sector, forecast 2026-09-07 (pre-fetched cache)",
-  "fetchedAt": "2026-09-07T11:25:33.000Z",
-  "provenance": {
-    "pfzCycle": "Refreshed 2026-09-07: INCOIS issues PFZ advisories daily (except fishing-ban / severe-sea-state periods); current cycle forecast 07 SEP 2026, valid 08 SEP 2026 for the North Andhra Pradesh sector (incois.gov.in/MarineFisheries/TextDataHome).",
-    "zoneGeometry": "Zone positions are representative productive locations on the North AP continental shelf/slope off Visakhapatnam, consistent with published INCOIS advisory practice (lat/lon + depth + distance/direction from landing centre) and the CMFRI finding that high-frequency PFZ grids on this coast lie mid-shelf to slope (50-200 m), increasing Kakinada -> Kalingapatnam. Exact per-zone INCOIS rows are served dynamically (WebGIS) and are not statically scrapable; distances are computed at runtime by haversine from the query region.",
-    "sstChlorophyll": "September climatology for the Bay of Bengal off Visakhapatnam (NOAA-AVHRR / MODIS-Aqua heritage inputs used by INCOIS for PFZ detection: SST fronts ~28-29C with chlorophyll > 0.5 mg/m3).",
-    "notes": "Single-sector MVP cache. If the query region is outside the North AP sector, the agent still serves this sector and says so in the source string."
-  }
+  "fetchedAt": "2026-09-07T17:21:58.139Z"
 }

@@ -1,5 +1,9 @@
 {
-  "region": { "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185 },
+  "region": {
+    "name": "Visakhapatnam",
+    "lat": 17.6868,
+    "lon": 83.2185
+  },
   "bulletin": {
     "issuer": "CWC Visakhapatnam (IMD)",
     "type": "Coastal Weather Bulletin DAILY ONE",
@@ -13,27 +17,16 @@
     "warning": "NIL"
   },
   "waveHeightM": 1.5,
-  "waveHeightDerivation": "Representative value for IMD sea state 'slight to moderate' (WMO scale: slight 0.5-1.25 m, moderate 1.25-2.5 m).",
-  "waveHeightMaxM": 3.0,
-  "waveHeightMaxDerivation": "Worst case for the same bulletin: sea 'becoming rough in thundershowers' (WMO rough = 2.5-4.0 m). Surfaced in the reasoning via escalation detection; verdict stays driven by the representative height plus alerts, consistent with IMD Warning NIL.",
   "windSpeedKmh": 32,
-  "windDerivation": "Midpoint of bulletin 15-20 knots = 27.8-37.0 km/h (1 kt = 1.852 km/h).",
   "alerts": [],
-  "alertsBasis": "Bulletin Warning NIL + Port Signal NIL; HIGH WAVE ALERT Nil (CWC Visakhapatnam fisherman warning); RSMC New Delhi coastal bulletin archive: North Andhra DAILY TWO 06-Sep-2026 — No Warning (verified 2026-09-07).",
+  "fetchedAt": "2026-09-07T17:21:58.139Z",
+  "waveHeightMaxM": 3,
+  "waveHeightMaxDerivation": "Worst case for the same bulletin: sea 'becoming rough in thundershowers' (WMO rough = 2.5-4.0 m). Surfaced in the reasoning via escalation detection; verdict stays driven by the representative height plus alerts, consistent with IMD Warning NIL.",
   "tide": {
     "nextHighTide": "2026-09-07T18:42:00+05:30",
     "highTideHeightM": 1.6,
     "nextLowTide": "2026-09-08T01:05:00+05:30",
     "lowTideHeightM": 0.4,
     "derivation": "Representative semi-diurnal prediction for Visakhapatnam standard port on 07 Sep 2026 (typical spring-neap range ~1.2-1.6 m on this coast). Exact heights/times vary with the lunar cycle — verify against INCOIS tide tables before operational use."
-  },
-  "fetchedAt": "2026-09-07T11:25:33.000Z",
-  "provenance": {
-    "sources": [
-      "mausam.imd.gov.in/visakhapatnam/mcdata/coastal_bulletin.pdf (CWC Visakhapatnam, issued 13:24 IST 02-Sep-2026)",
-      "mausam.imd.gov.in/visakhapatnam/mcdata/Fisherman_warning.pdf (HIGH WAVE ALERT: Nil; ocean-current alerts only for East Godavari/Guntur coasts, 03-05 Sep 2026)",
-      "RSMC New Delhi coastal bulletin archive: North Andhra DAILY TWO 06-Sep-2026 — No Warning"
-    ],
-    "notes": "Refreshed 2026-09-07: the CWC Visakhapatnam coastal_bulletin.pdf endpoint still serves the 02-Sep-2026 bulletin (no newer daily bulletin published), so the bulletin content is unchanged and fetchedAt is re-stamped. RSMC archive confirms North Andhra No Warning as of 06-Sep-2026. Pre-fetched real IMD values (no live API at demo time, per repo design)."
   }
 }
