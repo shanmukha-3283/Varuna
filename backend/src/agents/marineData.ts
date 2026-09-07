@@ -84,19 +84,50 @@ function loadCache(): Cache {
   return CacheSchema.parse(JSON.parse(raw));
 }
 
+function loadSectors(): Cache[] | null {
+  try {
+    const dir = dirname(fileURLToPath(import.meta.url));
+    const raw = readFileSync(join(dir, "..", "data", "incois_pfz_sectors.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { sectors: unknown };
+    const arr = z.array(CacheSchema).parse(parsed.sectors);
+    return arr;
+  } catch {
+    return null;
+  }
+}
+
+function nearestSector(region: Region, sectors: Cache[]): { cache: Cache; distKm: number } {
+  let best = sectors[0];
+  let bestD = haversineKm(region.lat, region.lon, best.landingCentre.lat, best.landingCentre.lon);
+  for (const s of sectors.slice(1)) {
+    const d = haversineKm(region.lat, region.lon, s.landingCentre.lat, s.landingCentre.lon);
+    if (d < bestD) {
+      best = s;
+      bestD = d;
+    }
+  }
+  return { cache: best, distKm: bestD };
+}
+
 export async function getMarineData(region: Region): Promise<MarineData> {
   console.log(`[marineDataAgent] Fetching marine data for ${region.name} (${region.lat}, ${region.lon})`);
 
-  // Cache-authoritative, deterministic: read pre-fetched INCOIS cache,
-  // compute haversine distance to each advisory zone, sort nearest-first.
+  // Pan-India: pick the nearest pre-fetched sector so Kakinada/Chennai/Kochi
+  // get local zones instead of Vizag extrapolation.
   let cache: Cache;
   let usedFallback = false;
-  try {
-    cache = loadCache();
-  } catch (err) {
-    console.error("[marineDataAgent] cache read failed, using embedded fallback:", err);
-    cache = FALLBACK;
-    usedFallback = true;
+  const sectors = loadSectors();
+  if (sectors && sectors.length > 0) {
+    const { cache: best } = nearestSector(region, sectors);
+    cache = best;
+  } else {
+    try {
+      cache = loadCache();
+    } catch (err) {
+      console.error("[marineDataAgent] cache read failed, using embedded fallback:", err);
+      cache = FALLBACK;
+      usedFallback = true;
+    }
   }
 
   const pfzZones = cache.zones
@@ -107,9 +138,8 @@ export async function getMarineData(region: Region): Promise<MarineData> {
     }))
     .sort((a, b) => a.distanceKm - b.distanceKm);
 
-  // Out-of-sector transparency: single-sector MVP cache (North AP).
-  // Distances are still computed correctly from the query region, but the
-  // source string says so explicitly instead of pretending pan-India live.
+  // Out-of-sector transparency: only when >300 km from the chosen
+  // sector's landing centre (i.e. outside all pan-India sectors).
   const distToLanding = haversineKm(region.lat, region.lon, cache.landingCentre.lat, cache.landingCentre.lon);
   const outOfSector = distToLanding > 300;
   const stale = stalenessNote(cache.fetchedAt);

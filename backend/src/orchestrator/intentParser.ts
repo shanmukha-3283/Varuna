@@ -51,20 +51,59 @@ function inferIntents(query: string): string[] {
 
 function inferRegion(query: string, defaultRegion: Region): Region {
   const lower = query.toLowerCase();
-  for (const [key, region] of Object.entries(REGION_FALLBACKS)) {
-    if (lower.includes(key)) return region;
+  // Longest-match first so "rk beach" beats generic substrings.
+  const keys = Object.keys(REGION_FALLBACKS).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    if (lower.includes(key)) return REGION_FALLBACKS[key];
   }
   return defaultRegion;
+}
+
+/** Explicit place-name in the CURRENT query, or null if none. */
+function extractExplicitRegion(query: string): Region | null {
+  const lower = query.toLowerCase();
+  const keys = Object.keys(REGION_FALLBACKS).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    if (lower.includes(key)) return REGION_FALLBACKS[key];
+  }
+  return null;
+}
+
+function coordsFar(a: Region, b: Region, km = 50): boolean {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const R = 6371;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h)) > km;
 }
 
 export async function parseIntent(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
   currentRegion: Region = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 }
-): Promise<{ region: Region; intents: string[]; source: "llm" | "fallback" }> {
+): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "fallback" }> {
+  // Rule 1: explicit place-name in the CURRENT query always wins —
+  // skip the LLM for region so history/defaults (e.g. sticky Vizag)
+  // can never override "Kakinada".
+  const explicit = extractExplicitRegion(userQuery);
+  const validIntents = [
+    "pfz_lookup",
+    "safety_check",
+    "weather_lookup",
+    "tide_lookup",
+    "alert_check",
+    "route_advice",
+    "chlorophyll_sst",
+  ];
+
+  // Only the last 2 turns go to the LLM to reduce sticky-history bias.
+  const recent = chatHistory.slice(-4);
   let historyStr = "";
-  if (chatHistory.length > 0) {
-    historyStr = "CHAT HISTORY:\n" + chatHistory.map(m => `${m.role.toUpperCase()}: ${m.text}`).join("\n") + "\n\n";
+  if (recent.length > 0) {
+    historyStr = "RECENT CHAT (context only — CURRENT QUERY place-name overrides it):\n" + recent.map(m => `${m.role.toUpperCase()}: ${m.text.slice(0, 300)}`).join("\n") + "\n\n";
   }
 
   const prompt = `Extract structured data from this marine/fishing query.
@@ -78,7 +117,8 @@ Return ONLY valid JSON (no markdown, no explanation) with this exact shape:
 }
 
 Rules:
-- If no specific region is mentioned, use the current region: ${currentRegion.name} (lat: ${currentRegion.lat}, lon: ${currentRegion.lon})
+- If no specific region is mentioned in CURRENT QUERY, use the current region: ${currentRegion.name} (lat: ${currentRegion.lat}, lon: ${currentRegion.lon})
+- If CURRENT QUERY names a place, return that place with its real coordinates (do NOT return the current region).
 - region.name should be a real coastal place name
 - intents must be from the allowed list only
 - Return at least one intent`;
@@ -112,21 +152,27 @@ Rules:
       intents?: string[];
     };
 
-    const region: Region = {
+    let region: Region = {
       name: parsed.region?.name || currentRegion.name,
       lat: parsed.region?.lat ?? currentRegion.lat,
       lon: parsed.region?.lon ?? currentRegion.lon,
     };
+    let source: "llm" | "keyword" | "fallback" = "llm";
 
-    const validIntents = [
-      "pfz_lookup",
-      "safety_check",
-      "weather_lookup",
-      "tide_lookup",
-      "alert_check",
-      "route_advice",
-      "chlorophyll_sst",
-    ];
+    // Rule 2: validate LLM region against the explicit mention.
+    // If the query names Kakinada but the LLM echoed Vizag/default,
+    // the keyword wins.
+    if (explicit) {
+      const llmMatchesExplicit =
+        region.name.toLowerCase().includes(explicit.name.toLowerCase()) ||
+        (!coordsFar(region, explicit) && region.name === explicit.name);
+      if (!llmMatchesExplicit) {
+        console.log(`[intentParser] LLM region "${region.name}" overridden by explicit "${explicit.name}"`);
+        region = explicit;
+        source = "keyword";
+      }
+    }
+
     const intents =
       parsed.intents && parsed.intents.length > 0
         ? parsed.intents.filter((i) => validIntents.includes(i))
@@ -134,13 +180,17 @@ Rules:
 
     if (intents.length === 0) intents.push("safety_check");
 
-    return { region, intents, source: "llm" };
+    return { region, intents, source };
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === "AbortError") {
       console.error("[intentParser] Ollama timeout (45s), using fallback");
     } else {
       console.error("[intentParser] LLM failed, using fallback:", err);
+    }
+    // Offline path: keyword scan first (explicit wins), else default.
+    if (explicit) {
+      return { region: explicit, intents: inferIntents(userQuery), source: "keyword" };
     }
     const region = inferRegion(userQuery, currentRegion);
     const intents = inferIntents(userQuery);

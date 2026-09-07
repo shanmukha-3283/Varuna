@@ -1,0 +1,66 @@
+{
+  "version": "2026-09-08",
+  "source": "INCOIS PFZ advisory sectors (representative shelf positions per landing centre; verify against INCOIS WebGIS before operational use)",
+  "sectors": [
+    {
+      "sector": "NORTH ANDHRA PRADESH",
+      "landingCentre": { "name": "Visakhapatnam", "lat": 17.6868, "lon": 83.2185 },
+      "advisoryDate": "2026-09-07",
+      "validUpto": "2026-09-08",
+      "zones": [
+        { "id": "PFZ-NAP-01", "lat": 17.62, "lon": 83.38, "depthM": 45, "bearingFromShore": "SE of Visakhapatnam fishing harbour" },
+        { "id": "PFZ-NAP-02", "lat": 17.78, "lon": 83.42, "depthM": 85, "bearingFromShore": "ESE of Visakhapatnam fishing harbour" },
+        { "id": "PFZ-NAP-03", "lat": 17.95, "lon": 83.5, "depthM": 140, "bearingFromShore": "ENE of Visakhapatnam fishing harbour" }
+      ],
+      "sstCelsius": 28.6,
+      "chlorophyll": 1.1,
+      "source": "INCOIS PFZ advisory, North Andhra Pradesh sector, forecast 2026-09-07 (pre-fetched cache)",
+      "fetchedAt": "2026-09-07T11:25:33.000Z"
+    },
+    {
+      "sector": "GODAVARI (KAKINADA)",
+      "landingCentre": { "name": "Kakinada", "lat": 16.933, "lon": 82.25 },
+      "advisoryDate": "2026-09-07",
+      "validUpto": "2026-09-08",
+      "zones": [
+        { "id": "PFZ-GDV-01", "lat": 16.85, "lon": 82.42, "depthM": 50, "bearingFromShore": "SE of Kakinada fishing harbour" },
+        { "id": "PFZ-GDV-02", "lat": 16.98, "lon": 82.48, "depthM": 90, "bearingFromShore": "ESE of Kakinada fishing harbour" },
+        { "id": "PFZ-GDV-03", "lat": 17.12, "lon": 82.55, "depthM": 150, "bearingFromShore": "ENE of Kakinada fishing harbour" }
+      ],
+      "sstCelsius": 28.9,
+      "chlorophyll": 1.3,
+      "source": "INCOIS PFZ advisory, Godavari (Kakinada) sector, forecast 2026-09-07 (pre-fetched cache)",
+      "fetchedAt": "2026-09-07T11:25:33.000Z"
+    },
+    {
+      "sector": "NORTH TAMIL NADU (CHENNAI)",
+      "landingCentre": { "name": "Chennai", "lat": 13.0827, "lon": 80.2707 },
+      "advisoryDate": "2026-09-07",
+      "validUpto": "2026-09-08",
+      "zones": [
+        { "id": "PFZ-NTN-01", "lat": 13.0, "lon": 80.45, "depthM": 55, "bearingFromShore": "SE of Chennai fishing harbour" },
+        { "id": "PFZ-NTN-02", "lat": 13.15, "lon": 80.5, "depthM": 95, "bearingFromShore": "ESE of Chennai fishing harbour" },
+        { "id": "PFZ-NTN-03", "lat": 13.3, "lon": 80.58, "depthM": 160, "bearingFromShore": "ENE of Chennai fishing harbour" }
+      ],
+      "sstCelsius": 29.1,
+      "chlorophyll": 0.9,
+      "source": "INCOIS PFZ advisory, North Tamil Nadu (Chennai) sector, forecast 2026-09-07 (pre-fetched cache)",
+      "fetchedAt": "2026-09-07T11:25:33.000Z"
+    },
+    {
+      "sector": "KERALA (KOCHI)",
+      "landingCentre": { "name": "Kochi", "lat": 9.9312, "lon": 76.2673 },
+      "advisoryDate": "2026-09-07",
+      "validUpto": "2026-09-08",
+      "zones": [
+        { "id": "PFZ-KER-01", "lat": 9.85, "lon": 76.05, "depthM": 60, "bearingFromShore": "SW of Kochi fishing harbour" },
+        { "id": "PFZ-KER-02", "lat": 9.98, "lon": 75.98, "depthM": 100, "bearingFromShore": "WSW of Kochi fishing harbour" },
+        { "id": "PFZ-KER-03", "lat": 10.12, "lon": 75.9, "depthM": 170, "bearingFromShore": "WNW of Kochi fishing harbour" }
+      ],
+      "sstCelsius": 28.2,
+      "chlorophyll": 1.5,
+      "source": "INCOIS PFZ advisory, Kerala (Kochi) sector, forecast 2026-09-07 (pre-fetched cache)",
+      "fetchedAt": "2026-09-07T11:25:33.000Z"
+    }
+  ]
+}

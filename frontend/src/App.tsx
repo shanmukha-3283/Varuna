@@ -20,6 +20,7 @@ function App() {
   const [loadingSince, setLoadingSince] = useState<number | null>(null);
   const [preferredLanguage, setPreferredLanguage] = useState("English");
   const [currentRegion, setCurrentRegion] = useState(DEFAULT_REGION);
+  const [userLocation, setUserLocation] = useState<typeof DEFAULT_REGION | null>(null);
   const [alertBanner, setAlertBanner] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const seenAlerts = useRef<Set<string>>(new Set());
@@ -92,6 +93,9 @@ function App() {
       const result = await queryBackend(q, chatHistory, preferredLanguage, currentRegion, controller.signal);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
+      // Auto-sync: the visible pin follows the resolved spot so follow-up
+      // queries without a place-name stay in Kakinada (not sticky Vizag).
+      if (result.region) setCurrentRegion(result.region);
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
       setMessages((m) => [
         ...m,
@@ -163,7 +167,9 @@ function App() {
           <MapView
             region={latest?.region ?? currentRegion}
             markers={latest?.finalResponse?.mapMarkers ?? []}
+            userLocation={userLocation}
             onRegionChange={setCurrentRegion}
+            onUserLocation={setUserLocation}
           />
           <SafetyPanels latest={latest} />
           <ExecutionTrace trace={latest?.executionTrace ?? []} />
