@@ -49,8 +49,8 @@ type Cache = z.infer<typeof CacheSchema>;
 const FALLBACK: Cache = {
   sector: "NORTH ANDHRA PRADESH",
   landingCentre: { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
-  advisoryDate: "2026-09-06",
-  validUpto: "2026-09-07",
+  advisoryDate: "2026-09-07",
+  validUpto: "2026-09-08",
   zones: [
     { id: "PFZ-NAP-01", lat: 17.62, lon: 83.38, depthM: 45, bearingFromShore: "SE of Visakhapatnam fishing harbour" },
     { id: "PFZ-NAP-02", lat: 17.78, lon: 83.42, depthM: 85, bearingFromShore: "ESE of Visakhapatnam fishing harbour" },
@@ -59,7 +59,7 @@ const FALLBACK: Cache = {
   sstCelsius: 28.6,
   chlorophyll: 1.1,
   source: "INCOIS (embedded fallback — data cache unreadable)",
-  fetchedAt: "2026-09-07T00:00:00.000Z",
+  fetchedAt: "2026-09-07T11:25:33.000Z",
 };
 
 export function haversineKm(
