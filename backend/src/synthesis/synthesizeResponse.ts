@@ -31,6 +31,54 @@ function verdictAdvice(
   return "Venture out only with caution and monitor IMD updates closely.";
 }
 
+export function productivityNote(sst?: number, chl?: number): string | null {
+  if (sst === undefined || chl === undefined) return null;
+  const sstFav = sst >= 27 && sst <= 29.5;
+  const chlFav = chl >= 0.5;
+  if (sstFav && chlFav)
+    return `Productivity favourable: SST ${sst}°C with chlorophyll ${chl} mg/m³ supports plankton growth — good PFZ potential.`;
+  const reasons: string[] = [];
+  if (!sstFav) reasons.push(sst > 29.5 ? `SST ${sst}°C is warm, pushing thermal fronts offshore` : `SST ${sst}°C is cool for this sector`);
+  if (!chlFav) reasons.push(`chlorophyll ${chl} mg/m³ is low, indicating weak plankton bloom`);
+  return `Productivity subdued: ${reasons.join("; ")} — fish may be deeper or dispersed, prefer the nearest PFZ marker.`;
+}
+
+const ALERT_GUIDANCE: Record<string, string> = {
+  "high-wave": "High waves — secure gear, avoid open-sea crossings, return if swell builds.",
+  "cyclone-watch": "Possible cyclonic circulation — track IMD/RSMC bulletins hourly, keep harbour contact.",
+  "imd-warning": "IMD warning active — follow the official bulletin window strictly.",
+  "lightning": "Lightning risk — avoid metal masts, head to shore at first thunder.",
+  "data-unavailable": "Conditions unverifiable — treat as unsafe until fresh data arrives.",
+};
+
+function alertGuidance(alerts: string[]): string | null {
+  if (alerts.length === 0) return null;
+  const parts = alerts.map((a) => {
+    const key = Object.keys(ALERT_GUIDANCE).find((k) => a.toLowerCase().includes(k));
+    return key ? `${a}: ${ALERT_GUIDANCE[key]}` : a;
+  });
+  return `Alert guidance — ${parts.join(" ")}`;
+}
+
+function avoidanceNote(input: SynthesisInput): string | null {
+  const avoid: string[] = [];
+  if (input.weatherRisk && (input.weatherRisk.verdict === "unsafe" || input.weatherRisk.alerts.length > 0)) {
+    avoid.push(`avoid open-sea legs while ${input.weatherRisk.verdict} (${input.weatherRisk.alerts.join(", ") || `waves ${input.weatherRisk.waveHeightM} m`})`);
+  }
+  const danger = (input.geofenceAlerts ?? []).filter((g) => g.alertLevel === "danger");
+  for (const g of danger) avoid.push(`keep clear of ${g.zoneName}`);
+  const warn = (input.geofenceAlerts ?? []).filter((g) => g.alertLevel === "warning");
+  for (const g of warn) avoid.push(`exercise caution near ${g.zoneName}`);
+  if (avoid.length === 0) return null;
+  return `Zones to avoid: ${avoid.join("; ")}.`;
+}
+
+function tideLine(reasoning: string): string | null {
+  const m = reasoning.match(/Next high tide .*?IST.*?low .*?IST.*?(?:—|–)/i)
+    ?? reasoning.match(/high tide.*?IST.*?low.*?IST.*/i);
+  return m ? `Tide: ${m[0].trim()}` : null;
+}
+
 function buildTemplateText(input: SynthesisInput): string {
   const { region, marineData: marine, weatherRisk: weather } = input;
   const sentences: string[] = [];
@@ -72,6 +120,19 @@ function buildTemplateText(input: SynthesisInput): string {
   if (input.routeOptimization) {
     sentences.push(input.routeOptimization.message);
   }
+
+  const prod = productivityNote(marine?.sstCelsius, marine?.chlorophyll);
+  if (prod && (input.intents.includes("chlorophyll_sst") || input.intents.includes("pfz_lookup") || !marine)) {
+    sentences.push(prod);
+  } else if (prod && input.intents.length > 0) {
+    sentences.push(prod);
+  }
+
+  const avoid = avoidanceNote(input);
+  if (avoid) sentences.push(avoid);
+
+  const guide = input.weatherRisk ? alertGuidance(input.weatherRisk.alerts) : null;
+  if (guide) sentences.push(guide);
 
   return `For ${region.name}: ${sentences.join(" ")}`.trim();
 }
@@ -140,24 +201,35 @@ function buildEvidence(input: SynthesisInput): string[] {
     if (marine.chlorophyll !== undefined)
       parts.push(`chlorophyll ${marine.chlorophyll} mg/m³`);
     if (parts.length > 0) evidence.push(parts.join(", "));
+    const prod = productivityNote(marine.sstCelsius, marine.chlorophyll);
+    if (prod) evidence.push(prod);
   }
   if (weather) {
     evidence.push(
       `IMD weather: waves ${weather.waveHeightM} m, wind ${weather.windSpeedKmh} km/h`,
     );
-    if (weather.alerts.length > 0)
+    if (weather.alerts.length > 0) {
       evidence.push(`Active alerts: ${weather.alerts.join(", ")}`);
-    else evidence.push("No active alerts");
+      const guide = alertGuidance(weather.alerts);
+      if (guide) evidence.push(guide);
+    } else evidence.push("No active alerts");
     evidence.push(`Risk reasoning: ${weather.reasoning}`);
+    const tide = tideLine(weather.reasoning);
+    if (tide) evidence.push(tide);
   }
 
   if (input.geofenceAlerts && input.geofenceAlerts.length > 0) {
-    evidence.push(`Geofence Alerts: ${input.geofenceAlerts.map(a => a.message).join("; ")}`);
+    evidence.push(`Geofence Alerts: ${input.geofenceAlerts.map(a => `[${a.alertLevel}] ${a.zoneName}: ${a.message}`).join("; ")}`);
+  } else {
+    evidence.push("Geofence: no boundary violations for this location");
   }
 
   if (input.routeOptimization) {
-    evidence.push(`Route Optimization: ${input.routeOptimization.message}`);
+    evidence.push(`Route Optimization: ${input.routeOptimization.message} (distance ${input.routeOptimization.distanceKm} km, ~${input.routeOptimization.estTimeHours} h)`);
   }
+
+  const avoid = avoidanceNote(input);
+  if (avoid) evidence.push(avoid);
 
   return evidence;
 }
@@ -180,7 +252,23 @@ function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
       lead:
         "Frame the advice around HARBOUR TIMING: when to depart and when to " +
         "return given the stated wave/wind conditions, then give PFZ guidance. " +
-        "(Tide tables are not in the data — advise timing from waves/wind/verdict only.) ",
+        "Cite the tide clock times verbatim when present. ",
+      hazardFirst: false,
+    };
+  }
+  if (intents.includes("chlorophyll_sst")) {
+    return {
+      lead:
+        "Lead with PRODUCTIVITY: explain SST + chlorophyll and what it means for fish availability, " +
+        "then give PFZ guidance and safety. ",
+      hazardFirst: false,
+    };
+  }
+  if (intents.includes("route_advice")) {
+    return {
+      lead:
+        "Lead with the SAFE ROUTE: distance, time, and how it skirts hazards, " +
+        "then confirm PFZ target and safety verdict. ",
       hazardFirst: false,
     };
   }
@@ -216,6 +304,8 @@ async function generateWithOllama(
       marineFacts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
     if (marine.chlorophyll !== undefined)
       marineFacts.push(`Chlorophyll: EXACTLY ${marine.chlorophyll} mg/m³ — cite verbatim`);
+    const prod = productivityNote(marine.sstCelsius, marine.chlorophyll);
+    if (prod) marineFacts.push(`Productivity assessment: ${prod}`);
   } else {
     marineFacts.push("PFZ data: not requested or not available for this query (do not invent a distance)");
   }
@@ -240,12 +330,16 @@ async function generateWithOllama(
   
   const geofenceFacts: string[] = [];
   if (input.geofenceAlerts && input.geofenceAlerts.length > 0) {
-    geofenceFacts.push(`Geofence Alerts: ${input.geofenceAlerts.map(a => a.message).join(", ")}`);
+    geofenceFacts.push(`Geofence Alerts: ${input.geofenceAlerts.map(a => `[${a.alertLevel}] ${a.zoneName}: ${a.message}`).join(" | ")}`);
+  } else {
+    geofenceFacts.push("Geofence: no boundary violations for this location");
   }
+  const avoid = avoidanceNote(input);
+  if (avoid) geofenceFacts.push(avoid);
 
   const routeFacts: string[] = [];
   if (input.routeOptimization) {
-    routeFacts.push(`Route: ${input.routeOptimization.message}`);
+    routeFacts.push(`Route: ${input.routeOptimization.message} (distance ${input.routeOptimization.distanceKm} km, ~${input.routeOptimization.estTimeHours} h)`);
   }
 
   const facts = [

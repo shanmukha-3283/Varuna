@@ -21,8 +21,19 @@ function App() {
   const [preferredLanguage, setPreferredLanguage] = useState("English");
   const [currentRegion, setCurrentRegion] = useState(DEFAULT_REGION);
   const [alertBanner, setAlertBanner] = useState<string | null>(null);
+  const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${API_BASE}/health`).then((r) => {
+      if (!cancelled) setBackendUp(r.ok);
+    }).catch(() => {
+      if (!cancelled) setBackendUp(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   // Proactive Alerts Polling (severity-aware toast + dedup by alert id)
   useEffect(() => {
@@ -114,8 +125,20 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Varuna</h1>
-        <p>ORCA · Marine EcOsystem Reasoning with Collaborative Agents · Visakhapatnam coast</p>
+        <div className="brand">
+          <div className="brand-mark">◈</div>
+          <div>
+            <h1>Varuna <span className="brand-sub">ORCA</span></h1>
+            <p>Marine EcOsystem Reasoning with Collaborative Agents · INCOIS + IMD + Open-Meteo</p>
+          </div>
+        </div>
+        <div className="header-meta">
+          <span className={`status-pill ${backendUp === false ? "down" : backendUp ? "up" : "unknown"}`}>
+            {backendUp === false ? "● backend offline" : backendUp ? "● backend live" : "● checking…"}
+          </span>
+          <span className="pill">📍 {(latest?.region ?? currentRegion).name}</span>
+          <span className="pill">🌐 {preferredLanguage}</span>
+        </div>
       </header>
 
       {alertBanner && (
@@ -148,10 +171,8 @@ function App() {
       </main>
 
       <footer className="app-footer">
-        Evidence-grounded answers · INCOIS + IMD data · multi-agent orchestration
-        <span className="roadmap">
-          {" "}· Pan-India ports · voice + multilingual replies · geofencing · route optimization live
-        </span>
+        <span>Evidence-grounded · INCOIS PFZ + IMD bulletins + live sea-state · 6-agent LangGraph trace</span>
+        <span className="roadmap">Boundary polygons approximate — verify against official charts before operational use</span>
       </footer>
     </div>
   );
