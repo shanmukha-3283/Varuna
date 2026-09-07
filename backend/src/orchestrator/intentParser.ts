@@ -62,6 +62,8 @@ Rules:
 - intents must be from the allowed list only
 - Return at least one intent`;
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
   try {
     const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
       method: "POST",
@@ -75,12 +77,14 @@ Rules:
         options: { temperature: 0, num_predict: 256 },
         stream: false,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
       throw new Error(`Ollama returned ${response.status}`);
     }
 
+    clearTimeout(timeout);
     const data = (await response.json()) as { response: string };
     const parsed = JSON.parse(data.response) as {
       region?: { name?: string; lat?: number; lon?: number };
@@ -111,7 +115,12 @@ Rules:
 
     return { region, intents };
   } catch (err) {
-    console.error("[intentParser] LLM failed, using fallback:", err);
+    clearTimeout(timeout);
+    if (err instanceof DOMException && err.name === "AbortError") {
+      console.error("[intentParser] Ollama timeout (45s), using fallback");
+    } else {
+      console.error("[intentParser] LLM failed, using fallback:", err);
+    }
     const region = inferRegion(userQuery) || {
       name: "Visakhapatnam",
       lat: 17.6868,

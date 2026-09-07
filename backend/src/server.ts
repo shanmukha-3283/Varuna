@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
 import { runQuery } from "./orchestrator/graph.ts";
+import { parseIntent } from "./orchestrator/intentParser.ts";
 
 const app = new Hono();
 
@@ -18,6 +19,18 @@ app.use(
 
 app.get("/health", (c) => {
   return c.json({ status: "ok", service: "varuna-backend", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/intents", async (c) => {
+  const q = c.req.query("q");
+  if (!q) return c.json({ error: "Missing ?q=userQuery" }, 400);
+  try {
+    const parsed = await parseIntent(q);
+    return c.json(parsed);
+  } catch (err) {
+    console.error("[server] /api/intents error:", err);
+    return c.json({ error: "Failed to parse intent" }, 500);
+  }
 });
 
 app.post("/api/query", async (c) => {
