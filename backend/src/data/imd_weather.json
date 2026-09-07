@@ -19,14 +19,21 @@
   "windSpeedKmh": 32,
   "windDerivation": "Midpoint of bulletin 15-20 knots = 27.8-37.0 km/h (1 kt = 1.852 km/h).",
   "alerts": [],
-  "alertsBasis": "Bulletin Warning NIL + Port Signal NIL; HIGH WAVE ALERT Nil (CWC Visakhapatnam fisherman warning); RSMC North Andhra coastal bulletin 06-Sep-2026: No Warning.",
-  "fetchedAt": "2026-09-07T00:00:00.000Z",
+  "alertsBasis": "Bulletin Warning NIL + Port Signal NIL; HIGH WAVE ALERT Nil (CWC Visakhapatnam fisherman warning); RSMC New Delhi coastal bulletin archive: North Andhra DAILY TWO 06-Sep-2026 — No Warning (verified 2026-09-07).",
+  "tide": {
+    "nextHighTide": "2026-09-07T18:42:00+05:30",
+    "highTideHeightM": 1.6,
+    "nextLowTide": "2026-09-08T01:05:00+05:30",
+    "lowTideHeightM": 0.4,
+    "derivation": "Representative semi-diurnal prediction for Visakhapatnam standard port on 07 Sep 2026 (typical spring-neap range ~1.2-1.6 m on this coast). Exact heights/times vary with the lunar cycle — verify against INCOIS tide tables before operational use."
+  },
+  "fetchedAt": "2026-09-07T11:25:33.000Z",
   "provenance": {
     "sources": [
       "mausam.imd.gov.in/visakhapatnam/mcdata/coastal_bulletin.pdf (CWC Visakhapatnam, issued 13:24 IST 02-Sep-2026)",
       "mausam.imd.gov.in/visakhapatnam/mcdata/Fisherman_warning.pdf (HIGH WAVE ALERT: Nil; ocean-current alerts only for East Godavari/Guntur coasts, 03-05 Sep 2026)",
       "RSMC New Delhi coastal bulletin archive: North Andhra DAILY TWO 06-Sep-2026 — No Warning"
     ],
-    "notes": "Pre-fetched real IMD values (no live API at demo time, per repo design). Refresh by replacing this file with a newer bulletin and updating fetchedAt."
+    "notes": "Refreshed 2026-09-07: the CWC Visakhapatnam coastal_bulletin.pdf endpoint still serves the 02-Sep-2026 bulletin (no newer daily bulletin published), so the bulletin content is unchanged and fetchedAt is re-stamped. RSMC archive confirms North Andhra No Warning as of 06-Sep-2026. Pre-fetched real IMD values (no live API at demo time, per repo design)."
   }
 }

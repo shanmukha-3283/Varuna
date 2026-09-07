@@ -31,6 +31,17 @@ const BulletinSchema = z.object({
   warning: z.string(),
 });
 
+// Tide prediction block (optional): grounds "tide, weather, and sea
+// conditions" answers without touching the verdict rules or the
+// QueryState["weatherRisk"] output shape (surfaced in reasoning text only).
+const TideSchema = z.object({
+  nextHighTide: z.string(),
+  highTideHeightM: z.number().min(0),
+  nextLowTide: z.string(),
+  lowTideHeightM: z.number().min(0),
+  derivation: z.string().optional(),
+});
+
 const CacheSchema = z.object({
   region: z.object({
     name: z.string(),
@@ -46,6 +57,8 @@ const CacheSchema = z.object({
   // escalate (e.g. "slight to moderate BECOMING ROUGH in thundershowers").
   waveHeightMaxM: z.number().min(0).optional(),
   waveHeightMaxDerivation: z.string().optional(),
+  // Optional tide prediction (see TideSchema above).
+  tide: TideSchema.optional(),
 });
 
 // Exported so refreshCaches.ts / preflight.ts validate before write/read.
@@ -53,6 +66,7 @@ export const WeatherCacheSchema = CacheSchema;
 
 type Cache = z.infer<typeof CacheSchema>;
 type Bulletin = z.infer<typeof BulletinSchema>;
+type Tide = z.infer<typeof TideSchema>;
 
 // Sea-state phrases meaning conditions can exceed the representative
 // wave height within the bulletin validity window.
@@ -76,6 +90,7 @@ export function buildReasoning(
   bulletin: Bulletin,
   verdict: Verdict,
   waveHeightMaxM?: number,
+  tide?: Tide,
 ): string {
   const alertPart =
     bulletin.warning === "NIL"
@@ -91,13 +106,18 @@ export function buildReasoning(
   const escalationPart = detectEscalation(bulletin.seaCondition)
     ? ` Conditions can turn rough (up to ~${waveHeightMaxM ?? "2.5+"} m) in thundershowers — return to shore if weather builds.`
     : "";
+  // B-2: one grounded tide line when the cache carries a prediction.
+  // Times are ISO with IST offset; surface the clock time for fishermen.
+  const tidePart = tide
+    ? ` Next high tide ${tide.nextHighTide.slice(11, 16)} IST (~${tide.highTideHeightM} m), next low ${tide.nextLowTide.slice(11, 16)} IST (~${tide.lowTideHeightM} m) — plan harbour departures around slack water.`
+    : "";
   const advice =
     verdict === "unsafe"
       ? "It is advisable to stay ashore."
       : verdict === "caution"
         ? "Venture out only with caution and monitor IMD updates."
         : "Conditions look favourable for venturing out.";
-  return `${seaPart} ${alertPart}${escalationPart} ${advice}`;
+  return `${seaPart} ${alertPart}${escalationPart}${tidePart} ${advice}`;
 }
 
 function loadCache(): Cache {
@@ -117,6 +137,7 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
       cache.bulletin,
       verdict,
       cache.waveHeightMaxM,
+      cache.tide,
     );
     // H1: never serve an old bulletin silently — say so in the reasoning.
     const stale = stalenessNote(cache.fetchedAt);

@@ -138,6 +138,11 @@ async function testWeather(): Promise<void> {
     w.reasoning.includes("return to shore if weather builds"),
     "live reasoning surfaces the thundershower escalation",
   );
+  // B-2: live cache carries a tide prediction — reasoning must ground it.
+  assert(
+    w.reasoning.includes("high tide") && w.reasoning.includes("IST"),
+    "live reasoning surfaces the tide prediction",
+  );
 }
 
 function testCacheUtils(): void {
@@ -167,10 +172,43 @@ function testCacheUtils(): void {
   assert(expiryNote("not-a-date", now) === null, "unparseable valid-upto stays silent");
 }
 
+function testTide(): void {
+  console.log("\n=== tide grounding (B-2) ===");
+  const calm = {
+    issuer: "CWC Visakhapatnam (IMD)",
+    type: "t",
+    validFrom: "x",
+    validTo: "y",
+    issuedAt: "2026-09-07T13:24:00+05:30",
+    wind: "WIND",
+    weather: "W",
+    seaCondition: "SLIGHT",
+    portSignal: "NIL",
+    warning: "NIL",
+  };
+  const tide = {
+    nextHighTide: "2026-09-07T18:42:00+05:30",
+    highTideHeightM: 1.6,
+    nextLowTide: "2026-09-08T01:05:00+05:30",
+    lowTideHeightM: 0.4,
+  };
+  const withTide = buildReasoning(1.0, 20, calm, "safe", undefined, tide);
+  assert(
+    withTide.includes("18:42") && withTide.includes("1.6") && withTide.includes("slack water"),
+    "tide prediction surfaces clock time + heights in reasoning",
+  );
+  assert(withTide.includes("Conditions look favourable"), "tide line does not alter safe advice");
+  const noTide = buildReasoning(1.0, 20, calm, "safe");
+  assert(!noTide.includes("high tide"), "reasoning without tide data has no tide line");
+  // Verdict logic untouched by tide presence.
+  assert(computeVerdict(1.0, []) === "safe", "tide-range waves stay safe");
+}
+
 async function main(): Promise<void> {
   await testMarine();
   await testWeather();
   testCacheUtils();
+  testTide();
   console.log(`\n${failures === 0 ? "ALL LAPTOP-B TESTS PASSED" : `${failures} TEST(S) FAILED`}`);
   process.exit(failures === 0 ? 0 : 1);
 }
