@@ -79,6 +79,9 @@ function App() {
 
       <footer className="app-footer">
         Evidence-grounded answers · INCOIS + IMD data · multi-agent orchestration
+        <span className="roadmap">
+          {" "}· Roadmap: multilingual replies · multi-turn context · geofencing · route optimization
+        </span>
       </footer>
     </div>
   );
