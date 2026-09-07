@@ -9,6 +9,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { QueryState } from "../types.ts";
+import { expiryNote, stalenessNote } from "./cacheUtils.ts";
 
 type Region = QueryState["region"];
 type MarineData = NonNullable<QueryState["marineData"]>;
@@ -36,6 +37,9 @@ const CacheSchema = z.object({
   source: z.string(),
   fetchedAt: z.string(),
 });
+
+// Exported so refreshCaches.ts / preflight.ts validate before write/read.
+export const MarineCacheSchema = CacheSchema;
 
 type Cache = z.infer<typeof CacheSchema>;
 
@@ -98,11 +102,16 @@ export async function getMarineData(region: Region): Promise<MarineData> {
     }))
     .sort((a, b) => a.distanceKm - b.distanceKm);
 
+  // H1: never serve an old advisory silently — flag it in the source string
+  // (free text in the types.ts shape, so the contract is unchanged).
+  const freshnessFlag =
+    stalenessNote(cache.fetchedAt) ?? expiryNote(cache.validUpto);
+
   return {
     pfzZones,
     sstCelsius: cache.sstCelsius,
     chlorophyll: cache.chlorophyll,
-    source: cache.source,
+    source: freshnessFlag ? `${cache.source} [${freshnessFlag}]` : cache.source,
     fetchedAt: cache.fetchedAt,
   };
 }

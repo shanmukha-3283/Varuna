@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { QueryState } from "../types.ts";
+import { stalenessNote } from "./cacheUtils.ts";
 
 type Region = QueryState["region"];
 type WeatherRisk = NonNullable<QueryState["weatherRisk"]>;
@@ -41,10 +42,26 @@ const CacheSchema = z.object({
   windSpeedKmh: z.number().min(0),
   alerts: z.array(z.string()),
   fetchedAt: z.string(),
+  // Optional worst-case wave height for bulletins whose sea state can
+  // escalate (e.g. "slight to moderate BECOMING ROUGH in thundershowers").
+  waveHeightMaxM: z.number().min(0).optional(),
+  waveHeightMaxDerivation: z.string().optional(),
 });
+
+// Exported so refreshCaches.ts / preflight.ts validate before write/read.
+export const WeatherCacheSchema = CacheSchema;
 
 type Cache = z.infer<typeof CacheSchema>;
 type Bulletin = z.infer<typeof BulletinSchema>;
+
+// Sea-state phrases meaning conditions can exceed the representative
+// wave height within the bulletin validity window.
+const ESCALATION_RE = /rough|very rough|high seas?|heavy swell|surge/i;
+
+// Pure + exported so agents/test.ts can cover the escalation path.
+export function detectEscalation(seaCondition: string): boolean {
+  return ESCALATION_RE.test(seaCondition);
+}
 
 // Pure + exported so agents/test.ts can unit-test the decision boundary.
 export function computeVerdict(waveHeightM: number, alerts: string[]): Verdict {
@@ -58,6 +75,7 @@ export function buildReasoning(
   windSpeedKmh: number,
   bulletin: Bulletin,
   verdict: Verdict,
+  waveHeightMaxM?: number,
 ): string {
   const alertPart =
     bulletin.warning === "NIL"
@@ -67,13 +85,19 @@ export function buildReasoning(
     `Sea ${bulletin.seaCondition.toLowerCase()} ` +
     `(representative wave height ${waveHeightM} m) with ${bulletin.wind.toLowerCase()} ` +
     `(~${windSpeedKmh} km/h) per ${bulletin.issuer} bulletin issued ${bulletin.issuedAt}.`;
+  // H3: when the bulletin says the sea can escalate (e.g. "becoming rough
+  // in thundershowers"), say so explicitly instead of letting the single
+  // representative height under-state the hazard.
+  const escalationPart = detectEscalation(bulletin.seaCondition)
+    ? ` Conditions can turn rough (up to ~${waveHeightMaxM ?? "2.5+"} m) in thundershowers — return to shore if weather builds.`
+    : "";
   const advice =
     verdict === "unsafe"
       ? "It is advisable to stay ashore."
       : verdict === "caution"
         ? "Venture out only with caution and monitor IMD updates."
         : "Conditions look favourable for venturing out.";
-  return `${seaPart} ${alertPart} ${advice}`;
+  return `${seaPart} ${alertPart}${escalationPart} ${advice}`;
 }
 
 function loadCache(): Cache {
@@ -87,17 +111,24 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
   try {
     const cache = loadCache();
     const verdict = computeVerdict(cache.waveHeightM, cache.alerts);
+    let reasoning = buildReasoning(
+      cache.waveHeightM,
+      cache.windSpeedKmh,
+      cache.bulletin,
+      verdict,
+      cache.waveHeightMaxM,
+    );
+    // H1: never serve an old bulletin silently — say so in the reasoning.
+    const stale = stalenessNote(cache.fetchedAt);
+    if (stale) {
+      reasoning += ` Note: IMD data is stale (${stale}) — verify with the latest IMD bulletin before venturing out.`;
+    }
     return {
       waveHeightM: cache.waveHeightM,
       windSpeedKmh: cache.windSpeedKmh,
       alerts: cache.alerts,
       verdict,
-      reasoning: buildReasoning(
-        cache.waveHeightM,
-        cache.windSpeedKmh,
-        cache.bulletin,
-        verdict,
-      ),
+      reasoning,
     };
   } catch (err) {
     console.error("[weatherRiskAgent] cache read failed, fail-safe verdict:", err);
