@@ -1,0 +1,65 @@
+{
+  "version": "2026-09-07",
+  "source": "Representative operational boundaries for Varuna MVP — IMBL corridor + MPA polygons (approximate, verify against official charts before operational use)",
+  "imblSegments": [
+    {
+      "id": "IMBL-PALK-BAY",
+      "name": "International Maritime Boundary Line (IMBL) — Palk Bay / Sri Lanka",
+      "points": [
+        { "lat": 10.5, "lon": 79.5 },
+        { "lat": 10.0, "lon": 79.85 },
+        { "lat": 9.5, "lon": 79.5 },
+        { "lat": 9.0, "lon": 79.3 }
+      ],
+      "dangerWithinKm": 15
+    },
+    {
+      "id": "IMBL-EAST-OFFSHORE",
+      "name": "International Maritime Boundary Line (IMBL) — Bay of Bengal offshore",
+      "points": [
+        { "lat": 15.0, "lon": 86.5 },
+        { "lat": 12.0, "lon": 84.5 },
+        { "lat": 9.5, "lon": 82.0 }
+      ],
+      "dangerWithinKm": 20
+    }
+  ],
+  "protectedAreas": [
+    {
+      "id": "MPA-GULF-MANNAR",
+      "name": "Gulf of Mannar Marine Protected Area",
+      "alertLevel": "warning",
+      "polygon": [
+        { "lat": 9.3, "lon": 78.0 },
+        { "lat": 9.3, "lon": 79.2 },
+        { "lat": 8.5, "lon": 79.2 },
+        { "lat": 8.5, "lon": 78.0 }
+      ],
+      "message": "You are inside/near the Gulf of Mannar ecologically sensitive MPA. Fishing is restricted — check local advisories."
+    },
+    {
+      "id": "MPA-VIZAG-COASTAL",
+      "name": "Visakhapatnam Coastal Sensitive Zone",
+      "alertLevel": "info",
+      "polygon": [
+        { "lat": 17.9, "lon": 83.1 },
+        { "lat": 17.9, "lon": 83.5 },
+        { "lat": 17.5, "lon": 83.5 },
+        { "lat": 17.5, "lon": 83.1 }
+      ],
+      "message": "You are in the Visakhapatnam coastal sensitive zone. Follow local harbour advisories."
+    },
+    {
+      "id": "MPA-MALVAN",
+      "name": "Malvan Marine Sanctuary (West Coast)",
+      "alertLevel": "warning",
+      "polygon": [
+        { "lat": 16.5, "lon": 73.3 },
+        { "lat": 16.5, "lon": 73.8 },
+        { "lat": 16.0, "lon": 73.8 },
+        { "lat": 16.0, "lon": 73.3 }
+      ],
+      "message": "You are near Malvan Marine Sanctuary. Fishing is restricted in the core zone."
+    }
+  ]
+}

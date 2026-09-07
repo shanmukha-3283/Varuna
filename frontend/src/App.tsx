@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from "react";
 import ChatPanel, { type ChatMessage } from "./components/ChatPanel.tsx";
 import MapView from "./components/MapView.tsx";
 import ExecutionTrace from "./components/ExecutionTrace.tsx";
+import SafetyPanels from "./components/SafetyPanels.tsx";
 import { queryBackend, type QueryState, API_BASE } from "./api.ts";
 import "./App.css";
 
@@ -19,9 +20,11 @@ function App() {
   const [loadingSince, setLoadingSince] = useState<number | null>(null);
   const [preferredLanguage, setPreferredLanguage] = useState("English");
   const [currentRegion, setCurrentRegion] = useState(DEFAULT_REGION);
+  const [alertBanner, setAlertBanner] = useState<string | null>(null);
+  const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
 
-  // Proactive Alerts Polling
+  // Proactive Alerts Polling (severity-aware toast + dedup by alert id)
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -30,13 +33,27 @@ function App() {
         if (!res.ok) return;
         const data = await res.json();
         if (data.alerts && data.alerts.length > 0) {
-          const alertText = "🚨 PROACTIVE ALERT: " + data.alerts.join(" ");
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            // Prevent spamming the same alert
-            if (last && last.text === alertText) return prev;
-            return [...prev, { role: "assistant", text: alertText, intents: ["alert_check"] }];
-          });
+          const fresh = (data.alerts as string[]).filter((a) => !seenAlerts.current.has(a));
+          if (fresh.length === 0) return;
+          fresh.forEach((a) => seenAlerts.current.add(a));
+          // Cap memory: keep last 50 ids.
+          if (seenAlerts.current.size > 50) {
+            seenAlerts.current = new Set([...seenAlerts.current].slice(-50));
+          }
+          const alertText = "🚨 PROACTIVE ALERT: " + fresh.join(" ");
+          const severe = /danger|unsafe|cyclone|IMBL/i.test(alertText);
+          setAlertBanner(alertText);
+          if (severe) {
+            try {
+              const ctx = new AudioContext();
+              const osc = ctx.createOscillator();
+              osc.connect(ctx.destination);
+              osc.start();
+              osc.stop(ctx.currentTime + 0.3);
+              void ctx.close();
+            } catch { /* audio not available — banner is enough */ }
+          }
+          setMessages((prev) => [...prev, { role: "assistant", text: alertText, intents: ["alert_check"] }]);
         }
       } catch (err) {
         console.error("Alert polling failed", err);
@@ -101,6 +118,15 @@ function App() {
         <p>ORCA · Marine EcOsystem Reasoning with Collaborative Agents · Visakhapatnam coast</p>
       </header>
 
+      {alertBanner && (
+        <div className="alert-banner" role="alert">
+          <span>{alertBanner}</span>
+          <button type="button" onClick={() => setAlertBanner(null)} aria-label="Dismiss alert">
+            ✕
+          </button>
+        </div>
+      )}
+
       <main className="app-main">
         <ChatPanel 
           messages={messages} 
@@ -116,6 +142,7 @@ function App() {
             markers={latest?.finalResponse?.mapMarkers ?? []}
             onRegionChange={setCurrentRegion}
           />
+          <SafetyPanels latest={latest} />
           <ExecutionTrace trace={latest?.executionTrace ?? []} />
         </div>
       </main>
@@ -123,7 +150,7 @@ function App() {
       <footer className="app-footer">
         Evidence-grounded answers · INCOIS + IMD data · multi-agent orchestration
         <span className="roadmap">
-          {" "}· Roadmap: multilingual replies · multi-turn context · geofencing · route optimization
+          {" "}· Pan-India ports · voice + multilingual replies · geofencing · route optimization live
         </span>
       </footer>
     </div>

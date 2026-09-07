@@ -85,36 +85,48 @@ function loadCache(): Cache {
 }
 
 export async function getMarineData(region: Region): Promise<MarineData> {
-  console.log(`[marineDataAgent] Fetching live marine data for ${region.name} (${region.lat}, ${region.lon})`);
+  console.log(`[marineDataAgent] Fetching marine data for ${region.name} (${region.lat}, ${region.lon})`);
 
-  // Simulate live INCOIS API providing Pan-India data dynamically based on the region
-  const now = new Date();
-  
-  // Generating mock PFZs relative to the requested region to simulate live data
-  const pfzZones = [
-    {
-      lat: +(region.lat - 0.08 + Math.random() * 0.16).toFixed(4),
-      lon: +(region.lon - 0.08 + Math.random() * 0.16).toFixed(4),
-    },
-    {
-      lat: +(region.lat - 0.15 + Math.random() * 0.3).toFixed(4),
-      lon: +(region.lon - 0.15 + Math.random() * 0.3).toFixed(4),
-    },
-    {
-      lat: +(region.lat - 0.2 + Math.random() * 0.4).toFixed(4),
-      lon: +(region.lon - 0.2 + Math.random() * 0.4).toFixed(4),
-    }
-  ].map(z => ({
-    lat: z.lat,
-    lon: z.lon,
-    distanceKm: Math.round(haversineKm(region.lat, region.lon, z.lat, z.lon) * 10) / 10,
-  })).sort((a, b) => a.distanceKm - b.distanceKm);
+  // Cache-authoritative, deterministic: read pre-fetched INCOIS cache,
+  // compute haversine distance to each advisory zone, sort nearest-first.
+  let cache: Cache;
+  let usedFallback = false;
+  try {
+    cache = loadCache();
+  } catch (err) {
+    console.error("[marineDataAgent] cache read failed, using embedded fallback:", err);
+    cache = FALLBACK;
+    usedFallback = true;
+  }
+
+  const pfzZones = cache.zones
+    .map((z) => ({
+      lat: z.lat,
+      lon: z.lon,
+      distanceKm: Math.round(haversineKm(region.lat, region.lon, z.lat, z.lon) * 10) / 10,
+    }))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+
+  // Out-of-sector transparency: single-sector MVP cache (North AP).
+  // Distances are still computed correctly from the query region, but the
+  // source string says so explicitly instead of pretending pan-India live.
+  const distToLanding = haversineKm(region.lat, region.lon, cache.landingCentre.lat, cache.landingCentre.lon);
+  const outOfSector = distToLanding > 300;
+  const stale = stalenessNote(cache.fetchedAt);
+  const expired = expiryNote(cache.validUpto);
+  const provenanceBits: string[] = [];
+  if (outOfSector) provenanceBits.push(`extrapolated — query region ~${Math.round(distToLanding)} km from ${cache.sector} sector`);
+  if (stale) provenanceBits.push(stale);
+  if (expired) provenanceBits.push(expired);
+
+  const baseSource = usedFallback ? cache.source : `${cache.source} (sector: ${cache.sector}, advisory ${cache.advisoryDate})`;
+  const source = provenanceBits.length > 0 ? `${baseSource} — ${provenanceBits.join("; ")}` : baseSource;
 
   return {
     pfzZones,
-    sstCelsius: +(27 + Math.random() * 3).toFixed(1), // 27 to 30
-    chlorophyll: +(0.8 + Math.random() * 2).toFixed(2), // 0.8 to 2.8
-    source: "INCOIS (Live API Mock - Pan-India)",
-    fetchedAt: now.toISOString(),
+    sstCelsius: cache.sstCelsius,
+    chlorophyll: cache.chlorophyll,
+    source,
+    fetchedAt: cache.fetchedAt,
   };
 }

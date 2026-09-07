@@ -5,7 +5,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "test": "tsx src/orchestrator/test.ts"
+    "test": "tsx src/orchestrator/test.ts",
+    "test:agents": "tsx src/agents/test.ts",
+    "test:synthesis": "tsx src/synthesis/test.ts",
+    "test:integration": "tsx src/synthesis/integration-check.ts",
+    "test:all": "tsx src/agents/test.ts && tsx src/synthesis/test.ts",
+    "preflight": "tsx src/agents/preflight.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

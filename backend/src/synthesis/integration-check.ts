@@ -25,8 +25,9 @@ for (const q of QUERIES) {
   const state = await runQuery(q);
 
   assert(state.region.name.length > 0, "region populated by graph");
-  assert(state.executionTrace.length === 4, "graph produced 4-entry trace");
-  assert(state.marineData && state.weatherRisk, "B-leg stubs populated");
+  assert(state.executionTrace.length === 6, "graph produced 6-entry trace");
+  assert(state.weatherRisk, "weather leg populated");
+  // Marine leg may be skipped for non-marine intents (tool selection).
 
   const mine = await synthesizeResponse({
     language: "English",
@@ -34,6 +35,8 @@ for (const q of QUERIES) {
     intents: state.intents,
     marineData: state.marineData,
     weatherRisk: state.weatherRisk,
+    geofenceAlerts: state.geofenceAlerts,
+    routeOptimization: state.routeOptimization,
   });
   const check: NonNullable<QueryState["finalResponse"]> = mine;
   assert(check.text.length > 20, "real synthesis text non-trivial");

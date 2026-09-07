@@ -9,6 +9,7 @@ import { checkGeofence } from "./agents/geofenceAgent.ts";
 const app = new Hono();
 
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+const PORT = parseInt(process.env.PORT || "3000", 10);
 
 app.use(
   "*",
@@ -38,8 +39,15 @@ app.get("/api/intents", async (c) => {
 app.post("/api/query", async (c) => {
   try {
     const body = await c.req.json<{ userQuery?: string, chatHistory?: { role: string; text: string }[], preferredLanguage?: string, currentRegion?: { name: string; lat: number; lon: number } }>();
-    if (!body.userQuery || typeof body.userQuery !== "string") {
+    if (!body.userQuery || typeof body.userQuery !== "string" || !body.userQuery.trim()) {
       return c.json({ error: "Missing or invalid 'userQuery' field" }, 400);
+    }
+    if (body.currentRegion) {
+      const { lat, lon } = body.currentRegion;
+      if (typeof lat !== "number" || typeof lon !== "number" || Number.isNaN(lat) || Number.isNaN(lon) ||
+          lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+        return c.json({ error: "Invalid 'currentRegion' lat/lon" }, 400);
+      }
     }
 
     console.log(`[server] POST /api/query — "${body.userQuery}" (${body.preferredLanguage || 'English'}) at ${body.currentRegion?.name || 'Visakhapatnam'}`);
@@ -58,17 +66,15 @@ app.post("/api/query", async (c) => {
   }
 });
 
-const PORT = parseInt(process.env.PORT || "3000", 10);
-
 app.get("/api/check_alerts", async (c) => {
   const lat = parseFloat(c.req.query("lat") || "17.6868");
   const lon = parseFloat(c.req.query("lon") || "83.2185");
+  if (Number.isNaN(lat) || Number.isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+    return c.json({ error: "Invalid lat/lon query params" }, 400);
+  }
   const region = { name: "Current Location", lat, lon };
-  
+
   try {
-    // import these dynamically or at top. Wait, better to import at top. Let's do it inline for now or add imports at top.
-    // I need to add imports for getWeatherRisk and checkGeofence.
-    // I'll add a separate replace block for imports.
     const [weatherRisk, geofenceAlerts] = await Promise.all([
       getWeatherRisk(region),
       checkGeofence(region)

@@ -41,13 +41,6 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
       recognition.interimResults = true;
-      
-      let langCode = 'en-IN';
-      if (preferredLanguage === 'Hindi') langCode = 'hi-IN';
-      if (preferredLanguage === 'Telugu') langCode = 'te-IN';
-      if (preferredLanguage === 'Tamil') langCode = 'ta-IN';
-      if (preferredLanguage === 'Bengali') langCode = 'bn-IN';
-      recognition.lang = langCode;
 
       recognition.onstart = () => setIsListening(true);
       recognition.onresult = (event: any) => {
@@ -76,10 +69,29 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
     }
   }, []);
 
+  // Keep recognition locale in sync with the language selector.
+  useEffect(() => {
+    const r = recognitionRef.current;
+    if (!r) return;
+    let langCode = 'en-IN';
+    if (preferredLanguage === 'Hindi') langCode = 'hi-IN';
+    if (preferredLanguage === 'Telugu') langCode = 'te-IN';
+    if (preferredLanguage === 'Tamil') langCode = 'ta-IN';
+    if (preferredLanguage === 'Bengali') langCode = 'bn-IN';
+    r.lang = langCode;
+  }, [preferredLanguage]);
+
   const toggleListening = () => {
     if (isListening) {
       recognitionRef.current?.stop();
     } else {
+      // Set locale at start time too (covers first render before ref sync).
+      let langCode = 'en-IN';
+      if (preferredLanguage === 'Hindi') langCode = 'hi-IN';
+      if (preferredLanguage === 'Telugu') langCode = 'te-IN';
+      if (preferredLanguage === 'Tamil') langCode = 'ta-IN';
+      if (preferredLanguage === 'Bengali') langCode = 'bn-IN';
+      if (recognitionRef.current) recognitionRef.current.lang = langCode;
       recognitionRef.current?.start();
     }
   };

@@ -42,6 +42,8 @@ function buildTemplateText(input: SynthesisInput): string {
       `at (${nearest.lat}, ${nearest.lon})`;
     if (marine.sstCelsius !== undefined)
       pfz += `, with sea surface temperature ${marine.sstCelsius}°C`;
+    if (marine.chlorophyll !== undefined)
+      pfz += ` and chlorophyll ${marine.chlorophyll} mg/m³`;
     pfz += ".";
     sentences.push(pfz);
   }
@@ -59,6 +61,16 @@ function buildTemplateText(input: SynthesisInput): string {
     sentences.push(
       `No weather assessment is available for ${region.name} right now.`,
     );
+  }
+
+  if (input.geofenceAlerts && input.geofenceAlerts.length > 0) {
+    sentences.push(
+      `Boundary notice: ${input.geofenceAlerts.map((a) => `${a.zoneName} (${a.alertLevel}): ${a.message}`).join(" ")}`,
+    );
+  }
+
+  if (input.routeOptimization) {
+    sentences.push(input.routeOptimization.message);
   }
 
   return `For ${region.name}: ${sentences.join(" ")}`.trim();

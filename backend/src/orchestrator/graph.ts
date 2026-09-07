@@ -57,6 +57,7 @@ async function parseIntentNode(
   return {
     userQuery: translatedQuery,
     originalQuery,
+    language: inputLanguage,
     region,
     intents,
     executionTrace: trace(state, "intentParser", action),
@@ -140,6 +141,8 @@ async function synthesizeResponseNode(
     language: state.language,
     marineData: state.marineData,
     weatherRisk: state.weatherRisk,
+    geofenceAlerts: state.geofenceAlerts,
+    routeOptimization: state.routeOptimization,
   });
   return {
     finalResponse,

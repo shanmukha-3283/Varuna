@@ -66,13 +66,19 @@ async function testWeather(): Promise<void> {
   assert(Array.isArray(w.alerts), "alerts is an array");
   assert(w.verdict === "safe" || w.verdict === "caution" || w.verdict === "unsafe", `verdict valid (${w.verdict})`);
   assert(typeof w.reasoning === "string" && w.reasoning.length > 20, "reasoning is a non-trivial sentence");
-  assert(w.reasoning.includes("IMD") || w.reasoning.includes("Visakhapatnam"), "reasoning cites the bulletin source");
+  assert(w.reasoning.includes("IMD") || w.reasoning.includes("Visakhapatnam") || w.reasoning.includes("provenance"), "reasoning cites the bulletin source + provenance");
 
-  // Cache values are the real IMD bulletin: 15-20 kt -> ~32 km/h, sea slight-to-moderate -> 1.5 m -> caution.
-  assert(w.windSpeedKmh === 32, `wind matches IMD bulletin midpoint (got ${w.windSpeedKmh})`);
-  assert(w.waveHeightM === 1.5, `wave height matches derived value (got ${w.waveHeightM})`);
-  assert(w.verdict === "caution", `verdict is caution for 1.5 m, no alerts (got ${w.verdict})`);
-  assert(w.alerts.length === 0, "no active alerts (IMD Warning NIL)");
+  // Live-with-fallback: wave/wind may come from Open-Meteo when network is
+  // available, else from the IMD cache. Assert internal consistency instead
+  // of exact cache numbers.
+  assert(w.verdict === computeVerdict(w.waveHeightM, w.alerts), `verdict consistent with wave/alerts (${w.verdict})`);
+  assert(w.reasoning.includes("Data provenance:"), "reasoning carries data provenance");
+  if (!w.reasoning.includes("Open-Meteo live")) {
+    // Pure cache path (offline): values must match the pre-fetched bulletin.
+    assert(w.windSpeedKmh === 32, `offline wind matches IMD bulletin midpoint (got ${w.windSpeedKmh})`);
+    assert(w.waveHeightM === 1.5, `offline wave height matches derived value (got ${w.waveHeightM})`);
+    assert(w.verdict === "caution", `offline verdict is caution for 1.5 m, no alerts (got ${w.verdict})`);
+  }
 
   console.log("\n=== computeVerdict decision boundaries ===");
   assert(computeVerdict(1.0, []) === "safe", "1.0 m, no alerts -> safe");

@@ -311,6 +311,103 @@
   margin: 0;
 }
 
+.alert-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 12px 24px 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(220, 38, 38, 0.12);
+  border: 1px solid rgba(220, 38, 38, 0.5);
+  font-size: 14px;
+}
+
+.alert-banner button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 15px;
+}
+
+.safety-panels {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.safety-card {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 16px;
+  font-size: 14px;
+}
+
+.safety-card h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.meter-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0;
+}
+
+.meter-row span {
+  min-width: 150px;
+}
+
+.meter {
+  flex: 1;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+}
+
+.verdict {
+  font-weight: 700;
+}
+
+.alert-line {
+  margin: 8px 0 0;
+}
+
+.alert-line.danger {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.alert-line.ok {
+  opacity: 0.8;
+}
+
+.geofence-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.geofence-danger {
+  color: #dc2626;
+}
+
+.geofence-warning {
+  color: #d97706;
+}
+
+.route-msg {
+  opacity: 0.9;
+  margin: 6px 0 0;
+}
+
 /* ---- Trace ---- */
 
 .trace-panel {

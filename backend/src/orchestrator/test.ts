@@ -24,8 +24,8 @@ async function run(name: string, query: string): Promise<QueryState> {
   assert(typeof state.language === "string" && state.language.length > 0, "language is parsed");
 
   assert(
-    Array.isArray(state.executionTrace) && state.executionTrace.length === 4,
-    `executionTrace has 4 entries (got ${state.executionTrace?.length})`,
+    Array.isArray(state.executionTrace) && state.executionTrace.length === 6,
+    `executionTrace has 6 entries (got ${state.executionTrace?.length})`,
   );
   const agents = state.executionTrace.map((e) => e.agent);
   assert(
@@ -34,6 +34,8 @@ async function run(name: string, query: string): Promise<QueryState> {
         "intentParser",
         "marineDataAgent",
         "weatherRiskAgent",
+        "geofenceAgent",
+        "routeAgent",
         "synthesisAgent",
       ]),
     `executionTrace order correct (${agents.join(" -> ")})`,

@@ -98,7 +98,7 @@ export function buildReasoning(
       : `Active warning: ${bulletin.warning}.`;
   const seaPart =
     `Sea ${bulletin.seaCondition.toLowerCase()} ` +
-    `(live wave height ${waveHeightM} m) with live wind ` +
+    `(wave height ${waveHeightM} m) with wind ` +
     `(~${windSpeedKmh} km/h) alongside ${bulletin.issuer} bulletin issued ${bulletin.issuedAt}.`;
   // H3: when the bulletin says the sea can escalate (e.g. "becoming rough
   // in thundershowers"), say so explicitly instead of letting the single
@@ -148,7 +148,7 @@ async function fetchLiveWeather(lat: number, lon: number): Promise<{ windSpeedKm
 }
 
 export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
-  console.log(`[weatherRiskAgent] Fetching live weather risk for ${region.name} (${region.lat}, ${region.lon})`);
+  console.log(`[weatherRiskAgent] Fetching weather risk for ${region.name} (${region.lat}, ${region.lon})`);
   try {
     let cache: Cache | null = null;
     try {
@@ -156,60 +156,72 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
     } catch (e) {
       console.log("[weatherRiskAgent] No local cache available, proceeding with pure live API.");
     }
-    
+
+    // Never mutate the parsed cache object in place — clone fields we need.
+    const bulletin: Bulletin | null = cache ? { ...cache.bulletin } : null;
+    const tide: Tide | undefined = cache?.tide ? { ...cache.tide } : undefined;
+    const cacheFetchedAt: string | null = cache?.fetchedAt ?? null;
+    const waveHeightMaxM = cache?.waveHeightMaxM;
+
     let waveHeightM = cache?.waveHeightM ?? 1.0;
     let windSpeedKmh = cache?.windSpeedKmh ?? 10.0;
-    let fetchedAt = new Date().toISOString();
-    let alerts = cache?.alerts ?? [];
+    let alerts: string[] = [...(cache?.alerts ?? [])];
+    let provenance = "IMD cache";
 
-    if (cache) {
-      // Mock update to current date to avoid stale timestamps in reasoning
-      const now = new Date();
-      cache.bulletin.issuedAt = new Date(now.getTime() - 2 * 3600000).toISOString();
-      if (cache.tide) {
-        // Replace the date part of the tide times with today's date
-        const todayStr = now.toISOString().split("T")[0];
-        cache.tide.nextHighTide = cache.tide.nextHighTide.replace(/^[^T]+/, todayStr);
-        cache.tide.nextLowTide = cache.tide.nextLowTide.replace(/^[^T]+/, todayStr);
-      }
-    }
-
+    // Live-with-fallback: try Open-Meteo, fall back to cache on failure.
     const liveWeather = await fetchLiveWeather(region.lat, region.lon);
     if (liveWeather) {
       waveHeightM = liveWeather.waveHeightM;
       windSpeedKmh = liveWeather.windSpeedKmh;
+      provenance = cache ? "IMD cache + Open-Meteo live" : "Open-Meteo live";
       console.log(`[weatherRiskAgent] using live weather for ${region.name}: wave ${waveHeightM}m, wind ${windSpeedKmh}km/h`);
+    } else if (cache) {
+      provenance = "IMD cache (live fetch failed — cache fallback)";
+      console.log(`[weatherRiskAgent] live fetch failed, using cache for ${region.name}`);
+    } else {
+      provenance = "Open-Meteo live attempt failed, defaults";
     }
 
-    // Mock live alerts for Pan-India (Simulating IMD API)
+    // Derive high-wave alert from the effective wave height (legitimate rule).
+    // Cyclone-watch is NOT mocked from coordinates — it only comes from the
+    // IMD bulletin warning field or an explicit ops override.
     if (waveHeightM > 2.5 && !alerts.includes("high-wave")) {
       alerts.push("high-wave");
     }
-    if (region.lon > 85 && region.lat < 15) {
-      alerts.push("cyclone-watch"); // Mock cyclone watch in Bay of Bengal
+    if (bulletin && bulletin.warning !== "NIL" && !alerts.includes("imd-warning")) {
+      alerts.push("imd-warning");
+    }
+    if (process.env.ALLOW_MOCK_ALERTS === "true") {
+      if (region.lon > 85 && region.lat < 15 && !alerts.includes("cyclone-watch")) {
+        alerts.push("cyclone-watch"); // explicit ops-simulation flag only
+      }
     }
 
     const verdict = computeVerdict(waveHeightM, alerts);
-    
+
     let reasoning = "";
-    if (cache) {
+    if (bulletin) {
       reasoning = buildReasoning(
         waveHeightM,
         windSpeedKmh,
-        cache.bulletin,
+        bulletin,
         verdict,
-        cache.waveHeightMaxM,
-        cache.tide,
+        waveHeightMaxM,
+        tide,
       );
+      reasoning += ` Data provenance: ${provenance}.`;
     } else {
-      reasoning = `Live API weather: Sea is ${verdict} (live wave height ${waveHeightM} m) with live wind (~${windSpeedKmh} km/h). ` + 
-        (alerts.length > 0 ? `Active alerts: ${alerts.join(", ")}.` : "No active warnings.");
+      reasoning = `Live API weather: Sea is ${verdict} (live wave height ${waveHeightM} m) with live wind (~${windSpeedKmh} km/h). ` +
+        (alerts.length > 0 ? `Active alerts: ${alerts.join(", ")}.` : "No active warnings.") +
+        ` Data provenance: ${provenance}.`;
     }
-    
-    // H1: never serve an old bulletin silently — say so in the reasoning.
-    const stale = stalenessNote(fetchedAt);
-    if (stale) {
-      reasoning += ` Note: IMD data is stale (${stale}) — verify with the latest IMD bulletin before venturing out.`;
+
+    // Staleness is measured against the CACHE fetchedAt, never "now".
+    if (cacheFetchedAt) {
+      const stale = stalenessNote(cacheFetchedAt);
+      if (stale) {
+        reasoning += ` Note: IMD data is stale (${stale}) — verify with the latest IMD bulletin before venturing out.`;
+      }
     }
     return {
       waveHeightM,
