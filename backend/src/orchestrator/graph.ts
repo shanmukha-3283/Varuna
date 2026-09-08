@@ -1,6 +1,6 @@
 import { StateGraph, Annotation, END } from "@langchain/langgraph";
 import type { QueryState } from "../types.ts";
-import { parseIntent } from "./intentParser.ts";
+import { parseIntent, extractExplicitRegion } from "./intentParser.ts";
 import { getMarineData } from "../agents/marineData.ts";
 import { getWeatherRisk } from "../agents/weatherRisk.ts";
 import { checkGeofence } from "../agents/geofenceAgent.ts";
@@ -58,13 +58,25 @@ async function parseIntentNode(
   }
 
   const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || [], state.region);
-  const action = source === "llm" ? "parse_intent" : source === "keyword" ? "parse_intent_keyword" : source === "geocoder" ? "parse_intent_geocoder" : "parse_intent_fallback";
+  let finalRegion = region;
+  let finalSource = source;
+  // Backup: scan the ORIGINAL text for native-script place names
+  // (e.g. విశాఖపట్నం) that translation may have dropped or mangled.
+  if ((source === "fallback" || source === "llm") && originalQuery) {
+    const nativeHit = extractExplicitRegion(originalQuery);
+    if (nativeHit && nativeHit.name !== region.name) {
+      console.log(`[graph] native-script region "${nativeHit.name}" from original text`);
+      finalRegion = nativeHit;
+      finalSource = "keyword";
+    }
+  }
+  const action = finalSource === "llm" ? "parse_intent" : finalSource === "keyword" ? "parse_intent_keyword" : finalSource === "geocoder" ? "parse_intent_geocoder" : "parse_intent_fallback";
   return {
     userQuery: translatedQuery,
     originalQuery,
     detectedLanguage: inputLanguage,
-    region,
-    regionSource: source,
+    region: finalRegion,
+    regionSource: finalSource,
     intents,
     executionTrace: trace(state, "intentParser", action),
   };

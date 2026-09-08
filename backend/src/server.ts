@@ -1,3 +1,4 @@
+import "dotenv/config";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
@@ -99,7 +100,7 @@ app.get("/api/check_alerts", async (c) => {
 
 console.log(`[varuna] Starting backend on port ${PORT}...`);
 console.log(`[varuna] Ollama: ${process.env.OLLAMA_HOST || "http://localhost:11434"}`);
-console.log(`[varuna] Model: ${process.env.OLLAMA_MODEL || "qwen2.5:7b"}`);
+console.log(`[varuna] Model: ${process.env.OLLAMA_MODEL || "qwen3:8b"}`);
 
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   console.log(`[varuna] Backend running at http://localhost:${info.port}`);

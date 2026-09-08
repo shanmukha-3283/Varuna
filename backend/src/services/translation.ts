@@ -1,5 +1,5 @@
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen3:8b";
 
 function scriptDetect(text: string): string | null {
   if (/[\u0900-\u097F]/.test(text)) return "Hindi";
@@ -24,6 +24,7 @@ async function ollamaGenerate(prompt: string, system: string, timeoutMs = 20000)
         model: OLLAMA_MODEL,
         prompt,
         system,
+        think: false, // qwen3 thinking models: keep reasoning out of the reply
         options: { temperature: 0, num_predict: 64 },
         stream: false,
       }),

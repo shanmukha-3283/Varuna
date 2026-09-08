@@ -2,7 +2,7 @@ import type { QueryState } from "../types.ts";
 import { geocodePlace } from "../services/geocode.ts";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen3:8b";
 
 type Region = QueryState["region"];
 
@@ -35,6 +35,30 @@ const REGION_FALLBACKS: Record<string, Region> = {
   ongole: { name: "Ongole", lat: 15.5058, lon: 80.0499 },
   nellore: { name: "Nellore", lat: 14.4426, lon: 79.9865 },
   dhanushkodi: { name: "Dhanushkodi", lat: 9.152, lon: 79.4152 },
+  // Native-script aliases so Telugu/Tamil/Hindi place names match even when
+  // query translation is unavailable (scan runs on the original text too).
+  "విశాఖపట్నం": { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  "వైజాగ్": { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  "விசாகப்பட்டினம்": { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  "विशाखापत्तनम": { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  "विजाग": { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+  "కాకినాడ": { name: "Kakinada", lat: 16.933, lon: 82.25 },
+  "காக்கிநாடா": { name: "Kakinada", lat: 16.933, lon: 82.25 },
+  "काकीनाडा": { name: "Kakinada", lat: 16.933, lon: 82.25 },
+  "చెన్నై": { name: "Chennai", lat: 13.0827, lon: 80.2707 },
+  "சென்னை": { name: "Chennai", lat: 13.0827, lon: 80.2707 },
+  "चेन्नई": { name: "Chennai", lat: 13.0827, lon: 80.2707 },
+  "కొచ్చి": { name: "Kochi", lat: 9.9312, lon: 76.2673 },
+  "கொச்சி": { name: "Kochi", lat: 9.9312, lon: 76.2673 },
+  "कोच्चि": { name: "Kochi", lat: 9.9312, lon: 76.2673 },
+  "రామేశ్వరం": { name: "Rameswaram", lat: 9.2876, lon: 79.3129 },
+  "இராமேஸ்வரம்": { name: "Rameswaram", lat: 9.2876, lon: 79.3129 },
+  "ముంబై": { name: "Mumbai", lat: 18.922, lon: 72.8347 },
+  "மும்பை": { name: "Mumbai", lat: 18.922, lon: 72.8347 },
+  "मुंबई": { name: "Mumbai", lat: 18.922, lon: 72.8347 },
+  "గోవా": { name: "Goa", lat: 15.2993, lon: 74.124 },
+  "கோவா": { name: "Goa", lat: 15.2993, lon: 74.124 },
+  "गोवा": { name: "Goa", lat: 15.2993, lon: 74.124 },
 };
 
 export const REGION_TABLE = REGION_FALLBACKS;
@@ -87,8 +111,9 @@ function inferRegion(query: string, defaultRegion: Region): Region {
   return defaultRegion;
 }
 
-/** Explicit place-name in the CURRENT query, or null if none. */
-function extractExplicitRegion(query: string): Region | null {
+/** Explicit place-name in the CURRENT query, or null if none. Exported so
+ * the graph can re-scan the ORIGINAL (untranslated) text as a backup. */
+export function extractExplicitRegion(query: string): Region | null {
   const lower = query.toLowerCase();
   const keys = Object.keys(REGION_FALLBACKS).sort((a, b) => b.length - a.length);
   for (const key of keys) {
@@ -166,6 +191,7 @@ Rules:
         system:
           "You are a structured data extractor. Return only valid JSON, nothing else.",
         format: "json",
+        think: false, // qwen3 thinking models: keep reasoning out of the JSON
         options: { temperature: 0, num_predict: 256 },
         stream: false,
       }),
@@ -191,14 +217,15 @@ Rules:
     let source: "llm" | "keyword" | "geocoder" | "fallback" = "llm";
 
     // Rule 2: validate LLM region against the explicit mention.
-    // If the query names Kakinada but the LLM echoed Vizag/default,
+    // The keyword table is curated — if the LLM's coordinates are >50 km
+    // off (even with a matching name, e.g. Dhanushkodi at 10.75,78.75),
     // the keyword wins.
     if (explicit) {
       const llmMatchesExplicit =
-        region.name.toLowerCase().includes(explicit.name.toLowerCase()) ||
-        (!coordsFar(region, explicit) && region.name === explicit.name);
+        region.name.toLowerCase().includes(explicit.name.toLowerCase()) &&
+        !coordsFar(region, explicit);
       if (!llmMatchesExplicit) {
-        console.log(`[intentParser] LLM region "${region.name}" overridden by explicit "${explicit.name}"`);
+        console.log(`[intentParser] LLM region "${region.name}" (${region.lat},${region.lon}) overridden by explicit "${explicit.name}" (${explicit.lat},${explicit.lon})`);
         region = explicit;
         source = "keyword";
       }
@@ -229,7 +256,7 @@ Rules:
     if (err instanceof DOMException && err.name === "AbortError") {
       console.error("[intentParser] Ollama timeout (45s), using fallback");
     } else {
-      console.error("[intentParser] LLM failed, using fallback:", err);
+      console.error(`[intentParser] LLM unavailable (${err instanceof Error ? err.message : err}), using fallback`);
     }
     // Offline path: keyword scan first (explicit wins), geocoder second, else default.
     if (explicit) {

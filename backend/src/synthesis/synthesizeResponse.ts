@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { translateFromEnglish } from "../services/translation.ts";
 
 const OLLAMA_HOST = process.env.OLLAMA_HOST || "http://localhost:11434";
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:7b";
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen3:8b";
 
 export type SynthesisInput = Pick<
   QueryState,
@@ -166,9 +166,13 @@ function buildTemplateText(input: SynthesisInput): string {
   const guide = input.weatherRisk ? alertGuidance(input.weatherRisk.alerts) : null;
   if (guide) sentences.push(guide);
 
-  // Honest default-spot note: when the region wasn't user-named
-  // (keyword/geocoder), say so instead of sounding Vizag-specific.
+  // Honest default-spot note: only when the pin is the untouched Vizag
+  // default (not user-named via keyword/geocoder, not re-pinned by an
+  // earlier answer) — so it never sounds Vizag-specific by accident.
+  const isDefaultPin =
+    Math.abs(region.lat - 17.6868) < 1e-4 && Math.abs(region.lon - 83.2185) < 1e-4;
   if (
+    isDefaultPin &&
     (input.regionSource === "fallback" || input.regionSource === "llm") &&
     !input.intents.includes("greeting")
   ) {
@@ -419,7 +423,8 @@ async function generateWithOllama(
         prompt,
         system:
           "You are a concise marine safety assistant. Reply in 2-3 plain sentences.",
-        options: { temperature: 0.2, num_predict: 256 },
+        options: { temperature: 0.2, num_predict: 512 },
+        think: false, // qwen3 thinking models: keep reasoning out of the answer
         stream: false,
       }),
     });
@@ -429,7 +434,7 @@ async function generateWithOllama(
     if (!text) throw new Error("Ollama returned empty response");
     return { text, via: "llm" as const };
   } catch (err) {
-    console.error("[synthesizeResponse] LLM failed, using template:", err);
+    console.error(`[synthesizeResponse] LLM unavailable (${err instanceof Error ? err.message : err}), using template`);
     return { text: fallback, via: "template" as const };
   }
 }
