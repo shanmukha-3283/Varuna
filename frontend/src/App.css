@@ -169,6 +169,17 @@
 /* Safety */
 .alert-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 24px 0; padding: 10px 14px; border-radius: 12px; background: rgba(220,38,38,0.1); border: 1px solid rgba(220,38,38,0.45); font-size: 13.5px; }
 .alert-banner button { border: none; background: transparent; cursor: pointer; font-size: 15px; color: inherit; }
+.offline-banner {
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+  margin: 0; padding: 12px 24px;
+  background: rgba(234,179,8,0.12); border-bottom: 1px solid rgba(234,179,8,0.35);
+  font-size: 13.5px; color: #92400e; font-weight: 500;
+}
+.offline-banner code {
+  background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px; font-size: 12.5px;
+}
+.retry-btn { background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.4); color: #dc2626; }
+.retry-btn:hover { background: rgba(239,68,68,0.18); }
 .safety-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .safety-grid .card { padding-bottom: 12px; animation: rise-in var(--dur) var(--ease) both; }
 .safety-grid .card:nth-child(2) { animation-delay: 60ms; }

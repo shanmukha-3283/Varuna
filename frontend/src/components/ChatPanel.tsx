@@ -26,9 +26,10 @@ interface ChatPanelProps {
   chips: string[];
   preferredLanguage: string;
   liveTrace?: { agent: string; action: string; elapsedMs?: number }[];
+  lastQuery?: string | null;
 }
 
-export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, chips, preferredLanguage, liveTrace }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, chips, preferredLanguage, liveTrace, lastQuery }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [isListening, setIsListening] = useState(false);
@@ -240,6 +241,11 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
               {m.role === "assistant" && !m.streaming && !loading && i === messages.length - 1 && i > 0 && (
                 <button type="button" className="msg-btn" onClick={onRegenerate} title="Regenerate reply">
                   ↻ Regenerate
+                </button>
+              )}
+              {m.role === "error" && !loading && lastQuery && (
+                <button type="button" className="msg-btn retry-btn" onClick={() => onSend(lastQuery)} title="Retry last query">
+                  ↻ Retry
                 </button>
               )}
               {m.streaming && <span className="typing-elapsed">{elapsed}s</span>}

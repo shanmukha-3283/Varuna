@@ -48,6 +48,7 @@ function App() {
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
+  const lastQueryRef = useRef<string | null>(null);
 
   // Dynamic opening: LLM-composed greeting + adaptive chips. Falls back to
   // static content when the backend is unreachable.
@@ -130,6 +131,7 @@ function App() {
   async function handleSend(userQuery: string, opts?: { echo?: boolean }) {
     const q = userQuery.trim();
     if (!q) return;
+    lastQueryRef.current = q;
     // Cancel any in-flight query so a stale response can't overwrite fresh state.
     inFlight.current?.abort();
     const controller = new AbortController();
@@ -259,6 +261,12 @@ function App() {
         </div>
       </header>
 
+      {backendUp === false && (
+        <div className="offline-banner" role="alert">
+          <span>⚠️ Backend is offline. Run <code>cd backend && npm run dev</code> to start it.</span>
+        </div>
+      )}
+
       {alertBanner && (
         <div className="alert-banner" role="alert">
           <span>{alertBanner}</span>
@@ -279,6 +287,7 @@ function App() {
           chips={chips}
           preferredLanguage={preferredLanguage}
           liveTrace={liveTrace}
+          lastQuery={lastQueryRef.current}
         />
         <div className="side">
           <div className="dash-tabs" role="tablist" aria-label="Dashboard views">
