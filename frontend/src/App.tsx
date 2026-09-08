@@ -8,13 +8,34 @@ import "./App.css";
 
 const DEFAULT_REGION = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 };
 
-const GREETING: ChatMessage = {
+const FALLBACK_GREETING: ChatMessage = {
   role: "assistant",
   text: "Namaste! I am Varuna, your marine intelligence assistant for the Visakhapatnam coast. Ask me about fishing zones, sea safety, or weather alerts.",
 };
 
+const FALLBACK_CHIPS = [
+  "Where is the nearest Potential Fishing Zone today?",
+  "Find a safe route avoiding weather hazards.",
+  "Am I dangerously close to the Sri Lanka maritime border?",
+];
+
+function getSessionId(): string {
+  try {
+    let id = localStorage.getItem("varuna-session");
+    if (!id) {
+      id = crypto.randomUUID();
+      localStorage.setItem("varuna-session", id);
+    }
+    return id;
+  } catch {
+    return Math.random().toString(36).slice(2);
+  }
+}
+
 function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([GREETING]);
+  const [messages, setMessages] = useState<ChatMessage[]>([FALLBACK_GREETING]);
+  const [chips, setChips] = useState<string[]>(FALLBACK_CHIPS);
+  const [sessionId] = useState(getSessionId);
   const [latest, setLatest] = useState<QueryState | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingSince, setLoadingSince] = useState<number | null>(null);
@@ -29,6 +50,8 @@ function App() {
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
 
+  // Dynamic opening: LLM-composed greeting + adaptive chips. Falls back to
+  // static content when the backend is unreachable.
   useEffect(() => {
     let cancelled = false;
     fetch(`${API_BASE}/health`).then((r) => {
@@ -36,7 +59,22 @@ function App() {
     }).catch(() => {
       if (!cancelled) setBackendUp(false);
     });
+    fetch(
+      `${API_BASE}/api/opening?place=${encodeURIComponent(currentRegion.name)}&lat=${currentRegion.lat}&lon=${currentRegion.lon}&language=${encodeURIComponent(preferredLanguage)}`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { greeting?: string; suggestions?: string[] } | null) => {
+        if (cancelled || !data) return;
+        if (data.greeting) {
+          setMessages([{ role: "assistant", text: data.greeting, ts: Date.now() }]);
+        }
+        if (Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+          setChips(data.suggestions.slice(0, 3));
+        }
+      })
+      .catch(() => { /* static fallback already in place */ });
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Proactive Alerts Polling (severity-aware toast + dedup by alert id)
@@ -76,6 +114,19 @@ function App() {
     }, 30000); // Poll every 30 seconds
     return () => clearInterval(interval);
   }, [latest?.region, currentRegion]);
+
+  function refreshChips(region: { name: string; lat: number; lon: number }) {
+    fetch(
+      `${API_BASE}/api/opening?place=${encodeURIComponent(region.name)}&lat=${region.lat}&lon=${region.lon}&suggestionsOnly=1`,
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { suggestions?: string[] } | null) => {
+        if (Array.isArray(data?.suggestions) && data.suggestions.length > 0) {
+          setChips(data.suggestions.slice(0, 3));
+        }
+      })
+      .catch(() => { /* keep current chips */ });
+  }
 
   async function handleSend(userQuery: string, opts?: { echo?: boolean }) {
     const q = userQuery.trim();
@@ -126,7 +177,7 @@ function App() {
             return next;
           });
         },
-      }, controller.signal);
+      }, controller.signal, sessionId);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
       // Auto-sync: the visible pin follows the resolved spot so follow-up
@@ -136,6 +187,7 @@ function App() {
           if (prev.name !== result.region.name) setRegionPulse((n) => n + 1);
           return result.region;
         });
+        refreshChips(result.region);
       }
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
       finalizeLast({
@@ -221,6 +273,7 @@ function App() {
           onSend={handleSend}
           onStop={handleStop}
           onRegenerate={handleRegenerate}
+          chips={chips}
           preferredLanguage={preferredLanguage}
           onLanguageChange={setPreferredLanguage}
         />

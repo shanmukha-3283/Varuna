@@ -22,17 +22,12 @@ interface ChatPanelProps {
   onSend: (query: string) => void;
   onStop: () => void;
   onRegenerate: () => void;
+  chips: string[];
   preferredLanguage: string;
   onLanguageChange: (lang: string) => void;
 }
 
-const EXAMPLE_QUERIES = [
-  "Where is the nearest Potential Fishing Zone today?",
-  "Find a safe route avoiding weather hazards.",
-  "Am I dangerously close to the Sri Lanka maritime border?",
-];
-
-export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, preferredLanguage, onLanguageChange }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, chips, preferredLanguage, onLanguageChange }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [isListening, setIsListening] = useState(false);
@@ -259,7 +254,7 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
       </div>
 
       <div className="chat-examples">
-        {EXAMPLE_QUERIES.map((q) => (
+        {chips.map((q) => (
           <button
             key={q}
             type="button"

@@ -95,6 +95,7 @@ export async function queryStream(
   currentRegion?: Region,
   cbs: StreamCallbacks = {},
   outerSignal?: AbortSignal,
+  sessionId?: string,
 ): Promise<QueryState> {
   const QUERY_TIMEOUT_MS = 180_000;
   if (outerSignal?.aborted) throw new Error("cancelled");
@@ -106,7 +107,7 @@ export async function queryStream(
     const res = await fetch(`${API_BASE}/api/query/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify({ userQuery, chatHistory, preferredLanguage, currentRegion }),
+      body: JSON.stringify({ userQuery, chatHistory, preferredLanguage, currentRegion, sessionId }),
       signal: controller.signal,
     });
     if (!res.ok || !res.body) {
