@@ -13,7 +13,7 @@ function scriptDetect(text: string): string | null {
   return null;
 }
 
-async function ollamaGenerate(prompt: string, system: string, timeoutMs = 20000): Promise<string | null> {
+async function ollamaGenerate(prompt: string, system: string, timeoutMs = 20000, numPredict = 512): Promise<string | null> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), timeoutMs);
   try {
@@ -25,19 +25,30 @@ async function ollamaGenerate(prompt: string, system: string, timeoutMs = 20000)
         prompt,
         system,
         think: false, // qwen3 thinking models: keep reasoning out of the reply
-        options: { temperature: 0, num_predict: 64 },
+        options: { temperature: 0, num_predict: numPredict },
         stream: false,
       }),
       signal: ctl.signal,
     });
     if (!res.ok) return null;
     const data = (await res.json()) as { response?: string };
-    return (data.response || "").trim() || null;
+    return cleanOutput(data.response || "");
   } catch {
     return null;
   } finally {
     clearTimeout(t);
   }
+}
+
+/** Strip <think>...</think> tags that qwen3 leaks through despite
+ * think:false, and strip markdown code fences. */
+function cleanOutput(text: string): string {
+  let t = text.trim();
+  // Strip thinking block (greedy, multiline).
+  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
+  // Strip ```...``` fences.
+  t = t.replace(/^```[\s\S]*?\n([\s\S]*?)\n```$/gm, "$1").trim();
+  return t;
 }
 
 export async function detectLanguage(text: string): Promise<string> {

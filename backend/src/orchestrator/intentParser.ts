@@ -64,12 +64,12 @@ const REGION_FALLBACKS: Record<string, Region> = {
 export const REGION_TABLE = REGION_FALLBACKS;
 
 const INTENT_KEYWORDS: Record<string, string[]> = {
-  pfz_lookup: ["pfz", "fishing zone", "fish", "catch", "potential fishing", "productivity", "where to fish"],
-  safety_check: ["safe", "danger", "risk", "venture", "go to sea", "sailing", "should i go", "beach", "visit", "visiting", "picnic", "swim", "swimming", "best time", "evening visit", "morning visit"],
-  weather_lookup: ["weather", "temperature", "forecast", "rain", "wind", "sea condition", "wave"],
-  tide_lookup: ["tide", "high tide", "low tide", "tidal", "harbour timing"],
-  alert_check: ["alert", "warning", "cyclone", "lightning", "storm", "emergency", "thunder"],
-  route_advice: ["route", "path", "navigate", "course", "direction", "safest way"],
+  pfz_lookup: ["pfz", "fishing zone", "fish", "catch", "potential fishing", "productivity", "where to fish", "where should i fish", "good spot", "fishing ground", "find me fish", "any fish"],
+  safety_check: ["safe", "danger", "risk", "venture", "go to sea", "sailing", "should i go", "beach", "visit", "visiting", "picnic", "swim", "swimming", "best time", "evening visit", "morning visit", "can i go", "should i venture", "is the sea calm", "safe to sail", "safe to go out", "calm"],
+  weather_lookup: ["weather", "temperature", "forecast", "rain", "wind", "sea condition", "wave", "how is the sea", "wave conditions", "rough sea", "what's the weather", "weather like", "seas like"],
+  tide_lookup: ["tide", "high tide", "low tide", "tidal", "harbour timing", "when to go", "best time to depart", "slack water", "depart"],
+  alert_check: ["alert", "warning", "cyclone", "lightning", "storm", "emergency", "thunder", "tsunami", "any danger", "flood warning", "coast guard"],
+  route_advice: ["route", "path", "navigate", "course", "direction", "safest way", "how to get to", "way to reach", "go to pfz", "steer", "bearing"],
   chlorophyll_sst: ["chlorophyll", "sst", "sea surface temperature", "chloro"],
 };
 
@@ -84,9 +84,14 @@ function inferIntents(query: string, chatHistory: { role: string; text: string }
     }
   }
   if (intents.length === 0) intents.push("safety_check");
+  // Combo: a time reference ("tomorrow", "this evening") alongside a safety
+  // ask always implies weather outlook, not just the "right now" verdict.
+  if (intents.includes("safety_check") && /\b(tomorrow|tonight|this evening|this morning|this afternoon|overnight|next week)\b/.test(lower)) {
+    if (!intents.includes("weather_lookup")) intents.push("weather_lookup");
+  }
   // Reference words with prior turns = follow-up: keep the data intents,
   // but flag it so synthesis leans on the conversation context.
-  if (chatHistory.length > 0 && refersToHistory(lower)) {
+  if (chatHistory.length > 0 && refersToHistory(lower, query.trim().length)) {
     intents.push("follow_up");
   }
   return [...new Set(intents)];
@@ -106,9 +111,57 @@ export function isSmalltalk(query: string): boolean {
   ].some((p) => p.test(t));
 }
 
-/** Pronouns / references that point at previous turns. */
-function refersToHistory(lower: string): boolean {
-  return /\b(there|that|those|they|them|it|this|here|tomorrow|day after|next|what about|how about|and then|also|too|again|instead)\b/.test(lower);
+/** Pronouns / references that point at previous turns. Generic pronouns only
+ * count on SHORT queries ("is it safe there?") so standalone questions that
+ * happen to contain "it"/"this" are never misflagged; strong references
+ * ("what about", "same spot", "there") always count. */
+function refersToHistory(lower: string, len: number): boolean {
+  const strong = /\b(what about|how about|and then|same spot|same as|again|earlier|over there|round there|that zone|there)\b/;
+  const generic = /\b(it|this|those|they|them|that)\b/;
+  return strong.test(lower) || (len < 50 && generic.test(lower));
+}
+
+export interface Timeframe {
+  /** Whole-day offset from today: 0 = now/today, 1 = tomorrow, 2 = day after. */
+  offsetDays: number;
+  /** Within-day slot, when the query names one ("tomorrow morning"). */
+  period?: "morning" | "afternoon" | "evening" | "night";
+}
+
+/** Readable label used in weather facts + synthesis, e.g. "Tomorrow morning". */
+export function timeframeLabel(tf: Timeframe): string {
+  const day =
+    tf.offsetDays === 0 ? "Today" :
+    tf.offsetDays === 1 ? "Tomorrow" :
+    tf.offsetDays === 2 ? "Day after tomorrow" :
+    `In ${tf.offsetDays} days`;
+  return tf.period && tf.offsetDays === 0 ? `This ${tf.period}` : `${day}${tf.period ? ` ${tf.period}` : ""}`;
+}
+
+/** Detect temporal references. Returns null for "right now". */
+export function extractTimeframe(query: string): Timeframe | null {
+  const lower = query.toLowerCase();
+  const period =
+    /\bmorning\b/.test(lower) ? "morning" as const :
+    /\bafternoon\b/.test(lower) ? "afternoon" as const :
+    /\b(evening|tonight)\b/.test(lower) ? "evening" as const :
+    /(tonight|last light|night)/.test(lower) ? "night" as const : undefined;
+  if (/\bday after (tomorrow|the day after)\b|day after\b/.test(lower)) return { offsetDays: 2, period };
+  if (/\btomorrow\b/.test(lower)) return { offsetDays: 1, period };
+  if (period) return { offsetDays: 0, period };
+  return null;
+}
+
+/** The specific IST hour for a timeframe slot (used to pick forecast data). */
+export function timeframeHour(tf: Timeframe, nowHourIST: number): number {
+  const slot: Record<NonNullable<Timeframe["period"]>, number> = {
+    morning: 9,
+    afternoon: 14,
+    evening: 19,
+    night: 23,
+  };
+  if (tf.offsetDays === 0 && !tf.period) return nowHourIST;
+  return slot[tf.period ?? "afternoon"];
 }
 
 /** Pure conversational openers ("hi", "namaste", …) — no data query inside. */
@@ -250,10 +303,18 @@ Rules:
     };
     let source: "llm" | "keyword" | "geocoder" | "fallback" = "llm";
 
-    // Rule 2: validate LLM region against the explicit mention.
-    // The keyword table is curated — if the LLM's coordinates are >50 km
-    // off (even with a matching name, e.g. Dhanushkodi at 10.75,78.75),
-    // the keyword wins.
+    // Rule 2: no explicit place name in the query → the LLM must not move
+    // the pin. The user's selected region is authoritative.
+    if (!explicit) {
+      console.log(`[intentParser] no explicit place name in query, keeping ${currentRegion.name} (LLM region "${region.name}" ignored)`);
+      region = currentRegion;
+      source = "keyword";
+    }
+
+    // Rule 3: explicit place name exists — validate LLM against keyword table.
+    // The keyword table is curated; if the LLM's coordinates are >50 km off
+    // (even with a matching name, e.g. Dhanushkodi at 10.75,78.75), the
+    // keyword wins.
     if (explicit) {
       const llmMatchesExplicit =
         region.name.toLowerCase().includes(explicit.name.toLowerCase()) &&
@@ -265,10 +326,10 @@ Rules:
       }
     }
 
-    // Rule 3: unlisted place (e.g. Bapatla before it was tabled, or any
-    // Indian coastal town) — live geocoder before accepting the default.
-    // Triggers when the LLM merely echoed currentRegion/default.
-    if (source === "llm" && region.name === currentRegion.name) {
+    // Rule 4: explicit place not in keyword table (Bapatla, unlisted town) —
+    // if the LLM echoed the default despite the query naming a place, try
+    // the live geocoder for the unlisted town.
+    if (explicit && source === "llm" && region.name === currentRegion.name) {
       const geo = await geocodePlace(userQuery);
       if (geo) {
         console.log(`[intentParser] geocoder resolved "${geo.candidate}" -> ${geo.region.name}`);

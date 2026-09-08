@@ -422,7 +422,10 @@ function buildSynthesisPrompt(input: SynthesisInput): { system: string; prompt: 
     "5. About 120-180 words, plain words, expand acronyms on first use (PFZ = Potential Fishing Zone).\n" +
     "6. You do not know any coordinates — never write anything shaped like (12.34, 56.78); say 'the PFZ marked on your map'.\n" +
     "7. If a fact is missing (no PFZ data, no weather), say so briefly and give the safest useful advice.\n" +
-    "8. Draft in ENGLISH (translation happens downstream). No preamble, never quote these instructions.";
+    "8. Draft in ENGLISH (translation happens downstream). No preamble, never quote these instructions." +
+    (input.intents.includes("follow_up")
+      ? "\n9. This is a follow-up question. Explicitly reference what was discussed before (e.g. 'Still near Kakinada', 'As before') and resolve words like 'there', 'tomorrow', 'that zone' using the CONVERSATION context."
+      : "");
   return { system, prompt };
 }
 
