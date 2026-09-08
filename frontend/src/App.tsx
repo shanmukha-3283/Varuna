@@ -3,7 +3,7 @@ import ChatPanel, { type ChatMessage } from "./components/ChatPanel.tsx";
 import MapView from "./components/MapView.tsx";
 import ExecutionTrace from "./components/ExecutionTrace.tsx";
 import SafetyPanels from "./components/SafetyPanels.tsx";
-import { queryBackend, type QueryState, API_BASE } from "./api.ts";
+import { queryStream, type QueryState, type TraceEntry, API_BASE } from "./api.ts";
 import "./App.css";
 
 const DEFAULT_REGION = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 };
@@ -25,6 +25,7 @@ function App() {
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const [dashTab, setDashTab] = useState<"map" | "safety" | "trace">("map");
   const [regionPulse, setRegionPulse] = useState(0);
+  const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
 
@@ -76,23 +77,56 @@ function App() {
     return () => clearInterval(interval);
   }, [latest?.region, currentRegion]);
 
-  async function handleSend(userQuery: string) {
+  async function handleSend(userQuery: string, opts?: { echo?: boolean }) {
     const q = userQuery.trim();
     if (!q) return;
     // Cancel any in-flight query so a stale response can't overwrite fresh state.
     inFlight.current?.abort();
     const controller = new AbortController();
     inFlight.current = controller;
-    setMessages((m) => [...m, { role: "user", text: q }]);
+    const echo = opts?.echo ?? true;
+    if (echo) setMessages((m) => [...m, { role: "user", text: q, ts: Date.now() }]);
+    // Streaming placeholder the deltas append to.
+    setMessages((m) => [...m, { role: "assistant", text: "", streaming: true, ts: Date.now() }]);
+    setLiveTrace([]);
     setLoading(true);
     setLoadingSince(Date.now());
+    const finalizeLast = (patch: Partial<ChatMessage>) =>
+      setMessages((m) => {
+        const next = [...m];
+        next[next.length - 1] = { ...next[next.length - 1], ...patch, streaming: false } as ChatMessage;
+        return next;
+      });
     try {
-      // Map messages to simple {role, text} array, excluding errors
+      // Map messages to simple {role, text} array, excluding errors and the live placeholder
       const chatHistory = messages
-        .filter(m => m.role !== "error")
-        .map(m => ({ role: m.role, text: m.text }));
-        
-      const result = await queryBackend(q, chatHistory, preferredLanguage, currentRegion, controller.signal);
+        .filter((m) => m.role !== "error" && !m.streaming)
+        .map((m) => ({ role: m.role, text: m.text }));
+
+      const result = await queryStream(q, chatHistory, preferredLanguage, currentRegion, {
+        onMeta: (meta) => {
+          if (controller.signal.aborted) return;
+          if (meta.region) {
+            setCurrentRegion((prev) => {
+              if (prev.name !== meta.region.name) setRegionPulse((n) => n + 1);
+              return meta.region;
+            });
+          }
+        },
+        onAgent: (entry) => {
+          if (controller.signal.aborted) return;
+          setLiveTrace((prev) => [...prev, entry]);
+        },
+        onDelta: (token) => {
+          if (controller.signal.aborted || !token) return;
+          setMessages((m) => {
+            const next = [...m];
+            const last = next[next.length - 1];
+            next[next.length - 1] = { ...last, text: last.text + token };
+            return next;
+          });
+        },
+      }, controller.signal);
       if (controller.signal.aborted) return; // superseded by a newer query
       setLatest(result);
       // Auto-sync: the visible pin follows the resolved spot so follow-up
@@ -104,31 +138,49 @@ function App() {
         });
       }
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
-      setMessages((m) => [
-        ...m,
-        {
-          role: "assistant",
-          text: result.finalResponse?.text ?? "I got a response but it had no text.",
-          evidence: result.finalResponse?.evidence,
-          intents: result.intents,
-          language: result.language,
-          synthesisVia: viaTag,
-        },
-      ]);
+      finalizeLast({
+        text: result.finalResponse?.text ?? "I got a response but it had no text.",
+        evidence: result.finalResponse?.evidence,
+        intents: result.intents,
+        language: result.language,
+        synthesisVia: viaTag,
+      });
     } catch (err) {
-      if (err instanceof Error && err.message === "cancelled") return; // user re-sent; stay silent
-      setMessages((m) => [
-        ...m,
-        {
-          role: "error",
-          text: `Could not reach the backend (${err instanceof Error ? err.message : "unknown error"}). Is the server running on http://localhost:3000?`,
-        },
-      ]);
+      if (err instanceof Error && err.message === "cancelled") {
+        finalizeLast({}); // stopped or superseded — keep the partial text
+        return;
+      }
+      // Turn the placeholder into an error bubble (or keep partial text).
+      setMessages((m) => {
+        const next = [...m];
+        const last = next[next.length - 1];
+        next[next.length - 1] = last.text
+          ? { ...last, streaming: false }
+          : {
+              role: "error",
+              text: `Could not reach the backend (${err instanceof Error ? err.message : "unknown error"}). Is the server running on http://localhost:3000?`,
+              ts: Date.now(),
+            };
+        return next;
+      });
     } finally {
       if (inFlight.current === controller) {
         inFlight.current = null;
         setLoading(false);
         setLoadingSince(null);
+      }
+    }
+  }
+
+  function handleStop() {
+    inFlight.current?.abort();
+  }
+
+  function handleRegenerate() {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        void handleSend(messages[i].text, { echo: false });
+        return;
       }
     }
   }
@@ -166,7 +218,9 @@ function App() {
           messages={messages} 
           loading={loading} 
           loadingSince={loadingSince} 
-          onSend={handleSend} 
+          onSend={handleSend}
+          onStop={handleStop}
+          onRegenerate={handleRegenerate}
           preferredLanguage={preferredLanguage}
           onLanguageChange={setPreferredLanguage}
         />
@@ -195,7 +249,7 @@ function App() {
               />
             )}
             {dashTab === "safety" && <SafetyPanels latest={latest} />}
-            {dashTab === "trace" && <ExecutionTrace trace={latest?.executionTrace ?? []} />}
+            {dashTab === "trace" && <ExecutionTrace trace={loading ? liveTrace : (latest?.executionTrace ?? [])} />}
           </div>
         </div>
       </main>

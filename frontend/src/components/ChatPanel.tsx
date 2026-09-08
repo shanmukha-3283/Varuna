@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Markdown } from "../lib/markdown.tsx";
 
 // Fallback for browser prefixes
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -10,6 +11,8 @@ export interface ChatMessage {
   intents?: string[];
   synthesisVia?: string;
   language?: string;
+  streaming?: boolean;
+  ts?: number;
 }
 
 interface ChatPanelProps {
@@ -17,6 +20,8 @@ interface ChatPanelProps {
   loading: boolean;
   loadingSince: number | null;
   onSend: (query: string) => void;
+  onStop: () => void;
+  onRegenerate: () => void;
   preferredLanguage: string;
   onLanguageChange: (lang: string) => void;
 }
@@ -27,11 +32,12 @@ const EXAMPLE_QUERIES = [
   "Am I dangerously close to the Sri Lanka maritime border?",
 ];
 
-export default function ChatPanel({ messages, loading, loadingSince, onSend, preferredLanguage, onLanguageChange }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, preferredLanguage, onLanguageChange }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [readAloud, setReadAloud] = useState(true);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<any>(null);
 
@@ -96,11 +102,11 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
     }
   };
 
-  // Text-to-Speech: Watch for new assistant messages
+  // Text-to-Speech: speak the finished reply only (never mid-stream).
   useEffect(() => {
-    if (!readAloud || messages.length === 0) return;
+    if (!readAloud || loading || messages.length === 0) return;
     const lastMsg = messages[messages.length - 1];
-    if (lastMsg.role === "assistant" && lastMsg.text) {
+    if (lastMsg.role === "assistant" && lastMsg.text && !lastMsg.streaming) {
       // Don't read the initial greeting again on hot reloads
       if (messages.length === 1 && lastMsg.text.startsWith("Namaste")) return;
       
@@ -114,7 +120,28 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
       window.speechSynthesis.cancel(); // Stop any current speech
       window.speechSynthesis.speak(utterance);
     }
-  }, [messages, readAloud]);
+  }, [messages, readAloud, loading, preferredLanguage]);
+
+  function copyText(text: string, idx: number) {
+    const done = () => {
+      setCopiedIdx(idx);
+      setTimeout(() => setCopiedIdx((c) => (c === idx ? null : c)), 1500);
+    };
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(done);
+    } else {
+      done();
+    }
+  }
+
+  function fmtTime(ts?: number): string {
+    if (!ts) return "";
+    try {
+      return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return "";
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -178,7 +205,44 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
                 {m.synthesisVia && <span className="via-badge">{m.synthesisVia}</span>}
               </div>
             )}
-            <p>{m.text}</p>
+            {m.role === "assistant" ? (
+              <div className="md">
+                {m.text ? (
+                  <Markdown text={m.text} />
+                ) : (
+                  <span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>
+                )}
+                {m.streaming && m.text !== "" && <span className="stream-cursor" aria-hidden="true">▍</span>}
+              </div>
+            ) : (
+              <p>{m.text}</p>
+            )}
+            <div className="msg-actions">
+              {m.ts != null && <span className="msg-time">{fmtTime(m.ts)}</span>}
+              {m.role === "assistant" && !m.streaming && m.text && (
+                <button
+                  type="button"
+                  className="msg-btn"
+                  onClick={() => copyText(m.text, i)}
+                  title="Copy reply"
+                >
+                  {copiedIdx === i ? "✓ Copied" : "⧉ Copy"}
+                </button>
+              )}
+              {m.role === "assistant" && !m.streaming && !loading && i === messages.length - 1 && i > 0 && (
+                <button
+                  type="button"
+                  className="msg-btn"
+                  onClick={onRegenerate}
+                  title="Regenerate reply"
+                >
+                  ↻ Regenerate
+                </button>
+              )}
+              {m.streaming && (
+                <span className="typing-elapsed">{elapsed}s</span>
+              )}
+            </div>
             {m.evidence && m.evidence.length > 0 && (
               <details className="evidence">
                 <summary>Evidence ({m.evidence.length})</summary>
@@ -191,12 +255,6 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
             )}
           </div>
         ))}
-        {loading && (
-          <div className="bubble bubble-assistant" aria-live="polite" aria-label={`Varuna is reasoning, ${elapsed} seconds elapsed`}>
-            <span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>
-            <span className="typing-elapsed">{elapsed}s</span>
-          </div>
-        )}
         <div ref={bottomRef} />
       </div>
 
@@ -239,9 +297,15 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, pre
             🎤
           </button>
         )}
-        <button type="submit" disabled={!draft.trim()}>
-          Send
-        </button>
+        {loading ? (
+          <button type="button" className="stop-btn" onClick={onStop} title="Stop generating">
+            ■ Stop
+          </button>
+        ) : (
+          <button type="submit" disabled={!draft.trim()}>
+            Send
+          </button>
+        )}
       </form>
     </section>
   );
