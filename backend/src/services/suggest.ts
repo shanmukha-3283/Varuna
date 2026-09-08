@@ -39,10 +39,8 @@ export function suggestQueries(
   ];
 }
 
-/** Current hour on the Indian coast (IST = UTC+5:30). */
-export function currentHourIST(now = new Date()): number {
-  return (now.getUTCHours() + 5 + (now.getUTCMinutes() >= 30 ? 0.5 : 0)) % 24;
-}
+// Re-export from intentParser for single source of truth.
+export { currentHourIST } from "../orchestrator/intentParser.ts";
 
 export function timeOfDay(hourIST: number): "morning" | "afternoon" | "evening" | "night" {
   if (hourIST >= 5 && hourIST < 12) return "morning";

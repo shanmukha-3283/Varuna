@@ -1,6 +1,6 @@
 import { StateGraph, Annotation, END } from "@langchain/langgraph";
 import type { QueryState } from "../types.ts";
-import { parseIntent, extractExplicitRegion } from "./intentParser.ts";
+import { parseIntent, extractExplicitRegion, type Timeframe } from "./intentParser.ts";
 import { getMarineData } from "../agents/marineData.ts";
 import { getWeatherRisk } from "../agents/weatherRisk.ts";
 import { checkGeofence } from "../agents/geofenceAgent.ts";
@@ -20,6 +20,7 @@ const GraphState = Annotation.Root({
   language: Annotation<string>, // reply language = UI selector, never overwritten by detection
   detectedLanguage: Annotation<string | undefined>, // internal: what the user typed
   regionSource: Annotation<string | undefined>, // keyword|geocoder|llm|fallback
+  timeframe: Annotation<Timeframe | null>,
   marineData: Annotation<QueryState["marineData"] | undefined>,
   weatherRisk: Annotation<QueryState["weatherRisk"] | undefined>,
   geofenceAlerts: Annotation<QueryState["geofenceAlerts"] | undefined>,
@@ -59,7 +60,7 @@ async function parseIntentNode(
     console.log(`[graph] Translated query to English: ${translatedQuery}`);
   }
 
-  const { region, intents, source } = await parseIntent(translatedQuery, state.chatHistory || [], state.region);
+  const { region, intents, source, timeframe } = await parseIntent(translatedQuery, state.chatHistory || [], state.region);
   let finalRegion = region;
   let finalSource = source;
   // Backup: scan the ORIGINAL text for native-script place names
@@ -80,6 +81,7 @@ async function parseIntentNode(
     region: finalRegion,
     regionSource: finalSource,
     intents,
+    timeframe,
     executionTrace: trace(state, "intentParser", action),
   };
 }
@@ -144,7 +146,7 @@ async function callWeatherAgentNode(
     };
   }
   console.log("[graph] callWeatherAgent");
-  const weatherRisk = await getWeatherRisk(state.region);
+  const weatherRisk = await getWeatherRisk(state.region, state.timeframe ?? undefined);
   return {
     weatherRisk,
     executionTrace: trace(state, "weatherRiskAgent", "fetch_weather_risk"),
@@ -202,6 +204,7 @@ async function synthesizeResponseNode(
     regionSource: state.regionSource,
     userQuery: state.userQuery,
     conversationContext: buildFullContext(state.chatHistory ?? [], state.sessionId),
+    timeframe: state.timeframe,
   });
   return {
     finalResponse,
@@ -240,6 +243,8 @@ export async function runQuery(userQuery: string, chatHistory: { role: string; t
     timestamp: new Date().toISOString(),
     intents: [],
     language: preferredLanguage,
+    regionSource: undefined,
+    timeframe: null,
     executionTrace: [],
   })) as QueryState;
   touchSession(sessionId, {
@@ -292,6 +297,7 @@ export async function runQueryStream(
     language: preferredLanguage,
     detectedLanguage: undefined,
     regionSource: undefined,
+    timeframe: null,
     marineData: undefined,
     weatherRisk: undefined,
     geofenceAlerts: undefined,
@@ -338,6 +344,7 @@ export async function runQueryStream(
       regionSource: state.regionSource,
       userQuery: state.userQuery,
       conversationContext: buildFullContext(state.chatHistory ?? [], state.sessionId),
+      timeframe: state.timeframe,
     },
     async (token) => { if (events.onDelta) await events.onDelta(token); },
     { signal: events.signal },

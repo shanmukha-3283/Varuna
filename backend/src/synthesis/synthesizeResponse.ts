@@ -7,6 +7,7 @@
 // This function does NOT append to executionTrace — the graph node does that.
 
 import type { QueryState } from "../types.ts";
+import { timeframeLabel, type Timeframe } from "../orchestrator/intentParser.ts";
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -26,6 +27,8 @@ export type SynthesisInput = Pick<
   userQuery?: string;
   /** Compact recent-turn context (FISHERMAN:/VARUNA: lines), or "" on turn one. */
   conversationContext?: string;
+  /** Timeframe for temporal queries: "tomorrow morning", etc. */
+  timeframe?: Timeframe | null;
 };
 
 type FinalResponse = NonNullable<QueryState["finalResponse"]>;
@@ -393,6 +396,7 @@ function buildSynthesisPrompt(input: SynthesisInput): { system: string; prompt: 
   }
 
   const facts = [
+    ...(input.timeframe ? [`Timeframe: ${timeframeLabel(input.timeframe)} — say this explicitly instead of 'right now'`] : []),
     `Region: ${input.region.name}`,
     ...(framing.hazardFirst ? [...weatherFacts, ...marineFacts] : [...marineFacts, ...weatherFacts]),
     ...geofenceFacts,

@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { QueryState } from "../types.ts";
 import { stalenessNote } from "./cacheUtils.ts";
+import { currentHourIST, timeframeLabel, timeframeHour, type Timeframe } from "../orchestrator/intentParser.ts";
 
 type Region = QueryState["region"];
 type WeatherRisk = NonNullable<QueryState["weatherRisk"]>;
@@ -126,10 +127,44 @@ function loadCache(): Cache {
   return CacheSchema.parse(JSON.parse(raw));
 }
 
-async function fetchLiveWeather(lat: number, lon: number): Promise<{ windSpeedKmh: number; waveHeightM: number; weatherCode?: number } | null> {
+async function fetchLiveWeather(lat: number, lon: number, timeframe?: Timeframe | null): Promise<{ windSpeedKmh: number; waveHeightM: number; weatherCode?: number; forecastNote?: string } | null> {
   const ctl = new AbortController();
   const t = setTimeout(() => ctl.abort(), 10000);
   try {
+    if (timeframe) {
+      // Forecast mode: request hourly data for the next 3 days.
+      const wxUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&hourly=wind_speed_10m,weather_code&timezone=Asia%2FKolkata&forecast_days=3`;
+      const marineUrl = `https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&hourly=wave_height&timezone=Asia%2FKolkata&forecast_days=3`;
+      const [wxRes, marineRes] = await Promise.all([
+        fetch(wxUrl, { signal: ctl.signal }),
+        fetch(marineUrl, { signal: ctl.signal }),
+      ]);
+      if (!wxRes.ok || !marineRes.ok) throw new Error("Forecast API error");
+      const wxBody = await wxRes.json() as any;
+      const marineBody = await marineRes.json() as any;
+      const wxTimes: string[] = wxBody.hourly?.time ?? [];
+      const wxWind: number[] = wxBody.hourly?.wind_speed_10m ?? [];
+      const wxCode: number[] = wxBody.hourly?.weather_code ?? [];
+      const mTimes: string[] = marineBody.hourly?.time ?? [];
+      const mWave: number[] = marineBody.hourly?.wave_height ?? [];
+      // Target hour in IST.
+      const nowIST = currentHourIST();
+      const targetHour = timeframeHour(timeframe, nowIST);
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + timeframe.offsetDays);
+      const targetPrefix = targetDate.toISOString().slice(0, 10);
+      const targetTime = `${targetPrefix}T${String(targetHour).padStart(2, "0")}:00`;
+      // Find matching index.
+      const wxIdx = wxTimes.findIndex((t) => t === targetTime);
+      const mIdx = mTimes.findIndex((t) => t === targetTime);
+      if (wxIdx === -1 && mIdx === -1) return null;
+      const windSpeedKmh = wxIdx >= 0 ? wxWind[wxIdx] : undefined;
+      const weatherCode = wxIdx >= 0 ? wxCode[wxIdx] : undefined;
+      const waveHeightM = mIdx >= 0 ? mWave[mIdx] : undefined;
+      if (typeof windSpeedKmh !== "number" || typeof waveHeightM !== "number") return null;
+      return { windSpeedKmh, waveHeightM, weatherCode, forecastNote: timeframeLabel(timeframe) };
+    }
+    // Current mode.
     const wxRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=wind_speed_10m,weather_code`, { signal: ctl.signal });
     const marineRes = await fetch(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height`, { signal: ctl.signal });
     if (!wxRes.ok || !marineRes.ok) throw new Error("API error");
@@ -157,8 +192,8 @@ function bulletinSignalsCyclone(warning: string): boolean {
   return /cyclon|depression|deep depression|storm/i.test(warning);
 }
 
-export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
-  console.log(`[weatherRiskAgent] Fetching weather risk for ${region.name} (${region.lat}, ${region.lon})`);
+export async function getWeatherRisk(region: Region, timeframe?: Timeframe): Promise<WeatherRisk> {
+  console.log(`[weatherRiskAgent] Fetching weather risk for ${region.name} (${region.lat}, ${region.lon})${timeframe ? ` (${timeframeLabel(timeframe)})` : ""}`);
   try {
     let cache: Cache | null = null;
     try {
@@ -179,12 +214,14 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
     let provenance = "IMD cache";
 
     // Live-with-fallback: try Open-Meteo, fall back to cache on failure.
-    const liveWeather = await fetchLiveWeather(region.lat, region.lon);
+    const liveWeather = await fetchLiveWeather(region.lat, region.lon, timeframe);
     let liveWeatherCode: number | undefined;
+    let forecastNote: string | undefined;
     if (liveWeather) {
       waveHeightM = liveWeather.waveHeightM;
       windSpeedKmh = liveWeather.windSpeedKmh;
       liveWeatherCode = liveWeather.weatherCode;
+      forecastNote = liveWeather.forecastNote;
       provenance = cache ? "IMD cache + Open-Meteo live" : "Open-Meteo live";
       console.log(`[weatherRiskAgent] using live weather for ${region.name}: wave ${waveHeightM}m, wind ${windSpeedKmh}km/h, code ${liveWeatherCode ?? "n/a"}`);
     } else if (cache) {
@@ -212,6 +249,7 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
     }
 
     const verdict = computeVerdict(waveHeightM, alerts);
+    const forecastBit = forecastNote ? ` (${forecastNote} forecast)` : "";
 
     let reasoning = "";
     if (bulletin) {
@@ -223,9 +261,9 @@ export async function getWeatherRisk(region: Region): Promise<WeatherRisk> {
         waveHeightMaxM,
         tide,
       );
-      reasoning += ` Data provenance: ${provenance}.`;
+      reasoning += ` Data provenance: ${provenance}${forecastBit}.`;
     } else {
-      reasoning = `Live API weather: Sea is ${verdict} (live wave height ${waveHeightM} m) with live wind (~${windSpeedKmh} km/h). ` +
+      reasoning = `Live API weather${forecastBit}: Sea is ${verdict} (wave height ${waveHeightM} m) with wind (~${windSpeedKmh} km/h). ` +
         (alerts.length > 0 ? `Active alerts: ${alerts.join(", ")}.` : "No active warnings.") +
         ` Data provenance: ${provenance}.`;
     }

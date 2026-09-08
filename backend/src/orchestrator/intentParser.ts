@@ -139,6 +139,13 @@ export function timeframeLabel(tf: Timeframe): string {
 }
 
 /** Detect temporal references. Returns null for "right now". */
+/** Current hour in IST (0-23). */
+export function currentHourIST(now = new Date()): number {
+  const utcH = now.getUTCHours();
+  const utcM = now.getUTCMinutes();
+  return (utcH + 5 + Math.floor((utcM + 30) / 60)) % 24;
+}
+
 export function extractTimeframe(query: string): Timeframe | null {
   const lower = query.toLowerCase();
   const period =
@@ -216,15 +223,18 @@ export async function parseIntent(
   userQuery: string,
   chatHistory: { role: string; text: string }[] = [],
   currentRegion: Region = { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 }
-): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "geocoder" | "fallback" }> {
+): Promise<{ region: Region; intents: string[]; source: "llm" | "keyword" | "geocoder" | "fallback"; timeframe: Timeframe | null }> {
+  const timeframe = extractTimeframe(userQuery);
+  if (timeframe) console.log(`[intentParser] timeframe: ${timeframeLabel(timeframe)}`);
+
   // Rule 0: pure greeting — no LLM, no data agents downstream.
   // Keep the current pin; the graph short-circuits to a warm ask+suggest reply.
   if (isGreeting(userQuery)) {
-    return { region: currentRegion, intents: ["greeting"], source: "keyword" };
+    return { region: currentRegion, intents: ["greeting"], source: "keyword", timeframe };
   }
   // Pure smalltalk — no LLM, no data agents downstream (graph skips them).
   if (isSmalltalk(userQuery)) {
-    return { region: currentRegion, intents: ["smalltalk"], source: "keyword" };
+    return { region: currentRegion, intents: ["smalltalk"], source: "keyword", timeframe };
   }
   const explicit = extractExplicitRegion(userQuery);
   const validIntents = [
@@ -345,7 +355,7 @@ Rules:
 
     if (intents.length === 0) intents.push("safety_check");
 
-    return { region, intents, source };
+    return { region, intents, source, timeframe };
   } catch (err) {
     clearTimeout(timeout);
     if (err instanceof DOMException && err.name === "AbortError") {
@@ -355,18 +365,18 @@ Rules:
     }
     // Offline path: keyword scan first (explicit wins), geocoder second, else default.
     if (explicit) {
-      return { region: explicit, intents: inferIntents(userQuery, chatHistory), source: "keyword" };
+      return { region: explicit, intents: inferIntents(userQuery, chatHistory), source: "keyword", timeframe };
     }
     try {
       const geo = await geocodePlace(userQuery);
       if (geo) {
-        return { region: geo.region, intents: inferIntents(userQuery, chatHistory), source: "geocoder" };
+        return { region: geo.region, intents: inferIntents(userQuery, chatHistory), source: "geocoder", timeframe };
       }
     } catch {
       // fall through to keyword/default
     }
     const region = inferRegion(userQuery, currentRegion);
     const intents = inferIntents(userQuery, chatHistory);
-    return { region, intents, source: "fallback" };
+    return { region, intents, source: "fallback", timeframe };
   }
 }
