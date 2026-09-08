@@ -86,7 +86,7 @@ async function parseIntentNode(
   };
 }
 
-const MARINE_INTENTS = new Set(["pfz_lookup", "chlorophyll_sst", "route_advice"]);
+const MARINE_INTENTS = new Set(["pfz_lookup", "chlorophyll_sst", "route_advice", "productivity_analysis"]);
 
 function needsMarine(intents: string[]): boolean {
   return intents.some((i) => MARINE_INTENTS.has(i));

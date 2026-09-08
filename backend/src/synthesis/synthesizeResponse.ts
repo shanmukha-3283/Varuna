@@ -403,6 +403,11 @@ function buildSynthesisPrompt(input: SynthesisInput): { system: string; prompt: 
     ...routeFacts,
   ];
 
+  if (input.intents.includes("productivity_analysis") && input.marineData) {
+    const trend = productivityTrend(input.marineData.source, input.marineData.sstCelsius, input.marineData.chlorophyll);
+    if (trend) facts.unshift(`Productivity trend: ${trend} — explain possible causes (SST shift, chlorophyll decline, seasonal)`);
+  }
+
   const history = (input.conversationContext ?? "").trim();
   const system =
     "You are Varuna, a marine intelligence assistant talking directly with an Indian fisherman or coastal visitor. " +

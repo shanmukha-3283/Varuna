@@ -70,6 +70,7 @@ const INTENT_KEYWORDS: Record<string, string[]> = {
   tide_lookup: ["tide", "high tide", "low tide", "tidal", "harbour timing", "when to go", "best time to depart", "slack water", "depart"],
   alert_check: ["alert", "warning", "cyclone", "lightning", "storm", "emergency", "thunder", "tsunami", "any danger", "flood warning", "coast guard"],
   route_advice: ["route", "path", "navigate", "course", "direction", "safest way", "how to get to", "way to reach", "go to pfz", "steer", "bearing"],
+  productivity_analysis: ["decline", "why less fish", "productivity dropped", "catch reduced", "fewer fish", "poor catch", "no fish", "empty net", "fish gone", "productivity", "declining catch"],
   chlorophyll_sst: ["chlorophyll", "sst", "sea surface temperature", "chloro"],
 };
 
@@ -245,6 +246,7 @@ export async function parseIntent(
     "alert_check",
     "route_advice",
     "chlorophyll_sst",
+    "productivity_analysis",
     "greeting",
     "smalltalk",
     "follow_up",
