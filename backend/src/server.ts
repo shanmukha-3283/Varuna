@@ -1,8 +1,9 @@
 import "dotenv/config";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { streamSSE } from "hono/streaming";
 import { serve } from "@hono/node-server";
-import { runQuery } from "./orchestrator/graph.ts";
+import { runQuery, runQueryStream } from "./orchestrator/graph.ts";
 import { parseIntent } from "./orchestrator/intentParser.ts";
 import { getWeatherRisk } from "./agents/weatherRisk.ts";
 import { checkGeofence } from "./agents/geofenceAgent.ts";
@@ -65,6 +66,58 @@ app.post("/api/query", async (c) => {
     console.error("[server] Error:", err);
     return c.json({ error: "Internal server error" }, 500);
   }
+});
+
+app.post("/api/query/stream", async (c) => {
+  const body = await c.req.json<{ userQuery?: string, chatHistory?: { role: string; text: string }[], preferredLanguage?: string, currentRegion?: { name: string; lat: number; lon: number } }>().catch(() => null);
+  if (!body?.userQuery || typeof body.userQuery !== "string" || !body.userQuery.trim()) {
+    return c.json({ error: "Missing or invalid 'userQuery' field" }, 400);
+  }
+  if (body.currentRegion) {
+    const { lat, lon } = body.currentRegion;
+    if (typeof lat !== "number" || typeof lon !== "number" || Number.isNaN(lat) || Number.isNaN(lon) ||
+        lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+      return c.json({ error: "Invalid 'currentRegion' lat/lon" }, 400);
+    }
+  }
+  console.log(`[server] POST /api/query/stream — "${body.userQuery}" (${body.preferredLanguage || 'English'}) at ${body.currentRegion?.name || 'Visakhapatnam'}`);
+  const t0 = Date.now();
+  return streamSSE(c, async (stream) => {
+    let closed = false;
+    // Best-effort: stop pulling tokens once the client goes away.
+    (c.req.raw.signal as AbortSignal | undefined)?.addEventListener("abort", () => { closed = true; });
+    const send = async (event: string, data: unknown) => {
+      if (closed) return;
+      try {
+        await stream.writeSSE({ event, data: typeof data === "string" ? data : JSON.stringify(data) });
+      } catch {
+        closed = true;
+      }
+    };
+    try {
+      const result = await runQueryStream(
+        body.userQuery as string,
+        body.chatHistory || [],
+        body.preferredLanguage || "English",
+        body.currentRegion,
+        {
+          onMeta: (meta) => send("meta", meta),
+          onAgent: (entry) => send("agent", entry),
+          onDelta: (token) => send("delta", { token }),
+          signal: c.req.raw.signal as AbortSignal | undefined,
+        },
+      );
+      await send("done", result);
+      console.log(`[server] stream done in ${Date.now() - t0}ms — trace:${result.executionTrace.map((e) => e.agent).join("->")}`);
+    } catch (err) {
+      if (err instanceof Error && err.message === "cancelled") {
+        await send("error", { error: "cancelled" });
+      } else {
+        console.error("[server] /api/query/stream error:", err);
+        await send("error", { error: "Internal server error" });
+      }
+    }
+  });
 });
 
 app.get("/api/check_alerts", async (c) => {

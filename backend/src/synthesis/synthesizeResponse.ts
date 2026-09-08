@@ -22,6 +22,10 @@ export type SynthesisInput = Pick<
 > & {
   /** How the region was resolved: keyword|geocoder = user-named, llm|fallback may be the untouched default pin. */
   regionSource?: string;
+  /** The fisherman's current question (English). */
+  userQuery?: string;
+  /** Compact recent-turn context (FISHERMAN:/VARUNA: lines), or "" on turn one. */
+  conversationContext?: string;
 };
 
 type FinalResponse = NonNullable<QueryState["finalResponse"]>;
@@ -210,6 +214,9 @@ function buildMapMarkers(input: SynthesisInput): MapMarker[] {
 
   if (input.geofenceAlerts) {
     for (const alert of input.geofenceAlerts) {
+      // Info notices (e.g. "you are in a coastal sensitive zone") are FYI,
+      // not hazards — only warning/danger earn a map pin.
+      if (alert.alertLevel === "info") continue;
       markers.push({
         lat: region.lat,
         lon: region.lon,
@@ -291,8 +298,8 @@ function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
       lead:
         "Lead with the HAZARD verdict FIRST: one opening sentence on safety " +
         "(verdict, alerts, waves/wind) and what the fisherman must do. " +
-        "Then give PFZ guidance using exactly this pattern: " +
-        "'head about X km out to the nearest PFZ' (X = the fact number). ",
+        "Then a short bullet list: what to avoid, when to check back. " +
+        "Mention the PFZ only briefly ('head about X km out to the nearest PFZ', X = the fact number) and only if it helps. ",
       hazardFirst: true,
     };
   }
@@ -300,7 +307,7 @@ function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
     return {
       lead:
         "Frame the advice around HARBOUR TIMING: when to depart and when to " +
-        "return given the stated wave/wind conditions, then give PFZ guidance. " +
+        "return given the stated wave/wind conditions, then PFZ guidance. " +
         "Cite the tide clock times verbatim when present. ",
       hazardFirst: false,
     };
@@ -308,8 +315,8 @@ function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
   if (intents.includes("chlorophyll_sst")) {
     return {
       lead:
-        "Lead with PRODUCTIVITY: explain SST + chlorophyll and what it means for fish availability, " +
-        "then give PFZ guidance and safety. ",
+        "Lead with PRODUCTIVITY: explain SST + chlorophyll in plain words and what it means for fish availability, " +
+        "then PFZ guidance and safety. ",
       hazardFirst: false,
     };
   }
@@ -329,26 +336,20 @@ function framingFor(intents: string[]): { lead: string; hazardFirst: boolean } {
   };
 }
 
-async function generateWithOllama(
-  input: SynthesisInput,
-  fallback: string,
-): Promise<{ text: string; via: "llm" | "template" }> {
-  const context = {
-    region: input.region,
-    intents: input.intents,
-    marineData: input.marineData ?? null,
-    weatherRisk: input.weatherRisk ?? null,
-  };
+/** Shared prompt builder: streaming and blocking paths draft from the same
+ * instructions so the two never drift apart. */
+function buildSynthesisPrompt(input: SynthesisInput): { system: string; prompt: string } {
   const marine = input.marineData;
   const weather = input.weatherRisk;
   const framing = framingFor(input.intents);
   const marineFacts: string[] = [];
   const weatherFacts: string[] = [];
-  
+
   if (marine && marine.pfzZones.length > 0) {
     const n = marine.pfzZones[0];
     marineFacts.push(`Nearest PFZ distance (km): ${n.distanceKm}`);
-    marineFacts.push(`Nearest PFZ coordinates: (${n.lat}, ${n.lon})`);
+    // Deliberately no coordinates: they render as map markers, and the
+    // model must never print raw lat/lon in prose.
     if (marine.sstCelsius !== undefined)
       marineFacts.push(`Sea surface temperature: EXACTLY ${marine.sstCelsius}°C — cite verbatim`);
     if (marine.chlorophyll !== undefined)
@@ -376,7 +377,7 @@ async function generateWithOllama(
       weatherFacts.push("Note: IMD cache staleness warning present in reasoning — surface it briefly if relevant");
     }
   }
-  
+
   const geofenceFacts: string[] = [];
   if (input.geofenceAlerts && input.geofenceAlerts.length > 0) {
     geofenceFacts.push(`Geofence Alerts: ${input.geofenceAlerts.map(a => `[${a.alertLevel}] ${a.zoneName}: ${a.message}`).join(" | ")}`);
@@ -395,24 +396,41 @@ async function generateWithOllama(
     `Region: ${input.region.name}`,
     ...(framing.hazardFirst ? [...weatherFacts, ...marineFacts] : [...marineFacts, ...weatherFacts]),
     ...geofenceFacts,
-    ...routeFacts
+    ...routeFacts,
   ];
+
+  const history = (input.conversationContext ?? "").trim();
+  const system =
+    "You are Varuna, a marine intelligence assistant talking directly with an Indian fisherman or coastal visitor. " +
+    "You sound like a knowledgeable skipper helping a friend: warm, plain-spoken, confident, never robotic. " +
+    "You write fluent natural prose with light Markdown: **bold** for the verdict and every key number, " +
+    "short '- ' bullet lists for do/don't guidance, and at most one '## ' section heading when the answer " +
+    "has two distinct parts. Never any other heading level, never tables, never emojis, " +
+    "never phrases like 'as an AI'.";
   const prompt =
-    "You are Varuna, a marine safety assistant speaking directly to a fisherman. " +
-    "Given this marine data and weather risk JSON, write a 2-3 sentence conversational " +
-    "safety answer for a fisherman. " +
+    `CONVERSATION SO FAR (oldest first — use it to resolve follow-ups like "there", "tomorrow", "what about X"; the CURRENT question wins on conflicts):\n` +
+    `${history || "(first message — no history)"}\n\n` +
+    `CURRENT QUESTION: "${input.userQuery ?? ""}"\n\n` +
+    `KEY FACTS (ground truth — every number you cite must match these exactly; never round, estimate, or invent):\n` +
+    `${facts.map((f) => `- ${f}`).join("\n")}\n\n` +
     framing.lead +
-    "Regardless of intent, never phrase PFZ distance as avoidance " +
-    "(never say 'stay away/clear/at least X km from/away from the zone'). " +
-    "Match the safety advice to the verdict: safe = go ahead, caution = go carefully, " +
-    "unsafe = stay ashore. Include Geofence alerts and Route optimization if present. " +
-    "CRITICAL: Do NOT output raw latitude and longitude coordinates in your text. Simply refer to them naturally (e.g., 'the nearest PFZ marked on your map'). " +
-    "CRITICAL: the KEY FACTS below contain the exact numbers for distance, wave height, wind speed, and temperature — reproduce every number " +
-    "verbatim in your answer, never round, estimate, or substitute a different zone's " +
-    "numbers, and never quote or mention these instructions. " +
-    "Plain text only, no markdown, no preamble.\n\n" +
-    `KEY FACTS:\n${facts.map((f) => `- ${f}`).join("\n")}\n\n` +
-    `JSON: ${JSON.stringify(context)}`;
+    "HOW TO ANSWER:\n" +
+    "1. Open with ONE headline sentence that directly answers the question (the verdict, the PFZ distance, or the tide window — whichever was asked).\n" +
+    "2. Then 1-2 short paragraphs or a small bullet list with the reasoning a skipper would give: why, what to do, what to watch.\n" +
+    "3. Weave in geofence/route/alert facts only if relevant to this question; leave them out otherwise.\n" +
+    "4. Close with ONE concrete next step (when to check back, what to ask next) — genuinely useful, not filler.\n" +
+    "5. About 120-180 words, plain words, expand acronyms on first use (PFZ = Potential Fishing Zone).\n" +
+    "6. You do not know any coordinates — never write anything shaped like (12.34, 56.78); say 'the PFZ marked on your map'.\n" +
+    "7. If a fact is missing (no PFZ data, no weather), say so briefly and give the safest useful advice.\n" +
+    "8. Draft in ENGLISH (translation happens downstream). No preamble, never quote these instructions.";
+  return { system, prompt };
+}
+
+async function generateWithOllama(
+  input: SynthesisInput,
+  fallback: string,
+): Promise<{ text: string; via: "llm" | "template" }> {
+  const { system, prompt } = buildSynthesisPrompt(input);
 
   try {
     const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
@@ -421,9 +439,8 @@ async function generateWithOllama(
       body: JSON.stringify({
         model: OLLAMA_MODEL,
         prompt,
-        system:
-          "You are a concise marine safety assistant. Reply in 2-3 plain sentences.",
-        options: { temperature: 0.2, num_predict: 512 },
+        system,
+        options: { temperature: 0.3, num_predict: 1024 },
         think: false, // qwen3 thinking models: keep reasoning out of the answer
         stream: false,
       }),
@@ -436,6 +453,121 @@ async function generateWithOllama(
   } catch (err) {
     console.error(`[synthesizeResponse] LLM unavailable (${err instanceof Error ? err.message : err}), using template`);
     return { text: fallback, via: "template" as const };
+  }
+}
+
+/** Streaming Ollama call: forwards each NDJSON token chunk as it arrives,
+ * returns the accumulated text. Throws on HTTP failure or abort. */
+async function streamOllama(
+  system: string,
+  prompt: string,
+  onToken: (token: string) => void | Promise<void>,
+  opts?: { signal?: AbortSignal },
+): Promise<string> {
+  const res = await fetch(`${OLLAMA_HOST}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      prompt,
+      system,
+      options: { temperature: 0.3, num_predict: 1024 },
+      think: false, // qwen3 thinking models: keep reasoning out of the answer
+      stream: true,
+    }),
+    signal: opts?.signal,
+  });
+  if (!res.ok || !res.body) throw new Error(`Ollama returned ${res.status}`);
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  let full = "";
+  const feed = async (line: string) => {
+    const t = line.trim();
+    if (!t) return;
+    let obj: { response?: string; done?: boolean; error?: string };
+    try {
+      obj = JSON.parse(t);
+    } catch {
+      return; // partial NDJSON line — wait for more bytes
+    }
+    if (obj.error) throw new Error(obj.error);
+    if (obj.response) {
+      full += obj.response;
+      await onToken(obj.response);
+    }
+  };
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+    for (const line of lines) await feed(line);
+  }
+  if (buf.trim()) await feed(buf);
+  reader.releaseLock();
+  return full.trim();
+}
+
+function isAbort(err: unknown): boolean {
+  return (err instanceof DOMException && err.name === "AbortError") ||
+    (err instanceof Error && /abort/i.test(err.message));
+}
+
+/** Streaming twin of synthesizeResponse: same prompt, same grounding, tokens
+ * forwarded as they arrive. Returns the translated FinalResponse. On stop
+ * (abort) with partial text it returns what was streamed; with nothing
+ * streamed it throws a "cancelled" error. */
+export async function synthesizeResponseStream(
+  state: SynthesisInput,
+  onToken: (token: string) => void | Promise<void>,
+  opts?: { signal?: AbortSignal },
+): Promise<FinalResponse> {
+  console.log(`[synthesizeResponse] stream for ${state.region.name} intents=${state.intents.join(",")}`);
+
+  if (state.intents.length === 1 && state.intents[0] === "greeting") {
+    const text = await translateFromEnglish(buildGreeting(state), state.language);
+    await onToken(text);
+    return {
+      text,
+      mapMarkers: [],
+      evidence: ["Conversational greeting — no marine data fetched (ask+suggest)"],
+    };
+  }
+
+  const mapMarkers = buildMapMarkers(state);
+  const evidenceBase = buildEvidence(state);
+  const fallback = buildTemplateText(state);
+  const { system, prompt } = buildSynthesisPrompt(state);
+
+  let streamed = "";
+  const forward = async (token: string) => {
+    streamed += token;
+    await onToken(token);
+  };
+
+  try {
+    const text = await streamOllama(system, prompt, forward, { signal: opts?.signal });
+    if (!text) throw new Error("Ollama returned empty response");
+    const translatedText = await translateFromEnglish(text, state.language);
+    const evidence = [...evidenceBase, `synthesis: llm-stream (${OLLAMA_MODEL}) — verbatim-grounded`];
+    return { text: translatedText, mapMarkers, evidence };
+  } catch (err) {
+    if (isAbort(err)) {
+      if (streamed.trim()) {
+        console.log("[synthesizeResponse] stream stopped by client, returning partial text");
+        const translatedText = await translateFromEnglish(streamed.trim(), state.language);
+        const evidence = [...evidenceBase, `synthesis: llm-stream (${OLLAMA_MODEL}) — stopped, partial answer`];
+        return { text: translatedText, mapMarkers, evidence };
+      }
+      throw new Error("cancelled");
+    }
+    console.error(`[synthesizeResponse] LLM unavailable (${err instanceof Error ? err.message : err}), using template`);
+    await onToken(fallback);
+    const translatedText = await translateFromEnglish(fallback, state.language);
+    const evidence = [...evidenceBase, `synthesis: template (${OLLAMA_MODEL}) — template fallback`];
+    return { text: translatedText, mapMarkers, evidence };
   }
 }
 

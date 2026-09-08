@@ -5,8 +5,9 @@ import { getMarineData } from "../agents/marineData.ts";
 import { getWeatherRisk } from "../agents/weatherRisk.ts";
 import { checkGeofence } from "../agents/geofenceAgent.ts";
 import { optimizeRoute } from "../agents/routeAgent.ts";
-import { synthesizeResponse } from "../synthesis/synthesizeResponse.ts";
+import { synthesizeResponse, synthesizeResponseStream } from "../synthesis/synthesizeResponse.ts";
 import { detectLanguage, translateToEnglish } from "../services/translation.ts";
+import { buildConversationContext } from "../services/conversation.ts";
 
 const GraphState = Annotation.Root({
   chatHistory: Annotation<QueryState["chatHistory"]>,
@@ -184,6 +185,8 @@ async function synthesizeResponseNode(
     geofenceAlerts: state.geofenceAlerts,
     routeOptimization: state.routeOptimization,
     regionSource: state.regionSource,
+    userQuery: state.userQuery,
+    conversationContext: buildConversationContext(state.chatHistory ?? []),
   });
   return {
     finalResponse,
@@ -224,4 +227,103 @@ export async function runQuery(userQuery: string, chatHistory: { role: string; t
     executionTrace: [],
   });
   return result as QueryState;
+}
+
+export interface QueryStreamMeta {
+  intents: string[];
+  region: QueryState["region"];
+  regionSource?: string;
+  language: string;
+  detectedLanguage?: string;
+}
+
+export interface QueryStreamEvents {
+  onMeta?: (meta: QueryStreamMeta) => void | Promise<void>;
+  onAgent?: (entry: QueryState["executionTrace"][number]) => void | Promise<void>;
+  onDelta?: (token: string) => void | Promise<void>;
+  signal?: AbortSignal;
+}
+
+function throwIfCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error("cancelled");
+}
+
+/** Streaming twin of runQuery: runs the same nodes in the same order, but
+ * emits meta + per-node agent progress live and streams the synthesis tokens.
+ * Returns the full end state (identical shape to runQuery). */
+export async function runQueryStream(
+  userQuery: string,
+  chatHistory: { role: string; text: string }[] = [],
+  preferredLanguage: string = "English",
+  currentRegion?: QueryState["region"],
+  events: QueryStreamEvents = {},
+): Promise<QueryState> {
+  throwIfCancelled(events.signal);
+  let state: GraphStateType = {
+    chatHistory,
+    userQuery,
+    originalQuery: undefined,
+    region: currentRegion || { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
+    timestamp: new Date().toISOString(),
+    intents: [],
+    language: preferredLanguage,
+    detectedLanguage: undefined,
+    regionSource: undefined,
+    marineData: undefined,
+    weatherRisk: undefined,
+    geofenceAlerts: undefined,
+    routeOptimization: undefined,
+    executionTrace: [],
+    finalResponse: undefined,
+  };
+  const emitAgent = async (partial: Partial<GraphStateType>) => {
+    const last = partial.executionTrace?.[partial.executionTrace.length - 1];
+    if (last && events.onAgent) await events.onAgent(last);
+  };
+
+  let partial = await parseIntentNode(state);
+  state = { ...state, ...partial };
+  await emitAgent(partial);
+  if (events.onMeta) {
+    await events.onMeta({
+      intents: state.intents,
+      region: state.region,
+      regionSource: state.regionSource,
+      language: state.language,
+      detectedLanguage: state.detectedLanguage,
+    });
+  }
+
+  const steps = [callMarineAgentNode, callWeatherAgentNode, callGeofenceAgentNode, callRouteAgentNode];
+  for (const step of steps) {
+    throwIfCancelled(events.signal);
+    partial = await step(state);
+    state = { ...state, ...partial };
+    await emitAgent(partial);
+  }
+
+  throwIfCancelled(events.signal);
+  const finalResponse = await synthesizeResponseStream(
+    {
+      region: state.region,
+      intents: state.intents,
+      language: state.language,
+      marineData: state.marineData,
+      weatherRisk: state.weatherRisk,
+      geofenceAlerts: state.geofenceAlerts,
+      routeOptimization: state.routeOptimization,
+      regionSource: state.regionSource,
+      userQuery: state.userQuery,
+      conversationContext: buildConversationContext(state.chatHistory ?? []),
+    },
+    async (token) => { if (events.onDelta) await events.onDelta(token); },
+    { signal: events.signal },
+  );
+  state = {
+    ...state,
+    finalResponse,
+    executionTrace: trace(state, "synthesisAgent", "synthesize_response"),
+  };
+  await emitAgent({ executionTrace: state.executionTrace });
+  return state as QueryState;
 }
