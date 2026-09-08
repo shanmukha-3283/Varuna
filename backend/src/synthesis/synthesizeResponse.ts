@@ -515,6 +515,31 @@ function isAbort(err: unknown): boolean {
     (err instanceof Error && /abort/i.test(err.message));
 }
 
+/** Pure conversation (thanks / who-are-you / help …): no agent data, just a
+ * warm contextual reply. Drafted by the LLM, static line only on outage. */
+function smalltalkPrompt(input: SynthesisInput): { system: string; prompt: string } {
+  const history = (input.conversationContext ?? "").trim();
+  return {
+    system:
+      "You are Varuna, a marine intelligence assistant talking with an Indian fisherman. " +
+      "Warm, plain-spoken, brief. Plain text, no markdown, no emojis.",
+    prompt:
+      `CONVERSATION SO FAR:\n${history || "(no history)"}\n\n` +
+      `THEY JUST SAID: "${input.userQuery ?? ""}"\n\n` +
+      "Reply in 1-2 sentences. If they thanked you, accept warmly and offer one useful next thing " +
+      "(e.g. checking tomorrow's sea). If they ask who you are or what you can do, say you track " +
+      "fishing zones, sea safety, tides, alerts and safe routes for the Indian coast, and ask for " +
+      "their fishing spot. Draft in ENGLISH.",
+  };
+}
+
+function smalltalkFallback(): string {
+  return (
+    "You're welcome! I'm Varuna — I track fishing zones, sea safety, tides, alerts and safe routes " +
+    "for the Indian coast. Tell me your fishing spot and what you need."
+  );
+}
+
 /** Streaming twin of synthesizeResponse: same prompt, same grounding, tokens
  * forwarded as they arrive. Returns the translated FinalResponse. On stop
  * (abort) with partial text it returns what was streamed; with nothing
@@ -534,6 +559,22 @@ export async function synthesizeResponseStream(
       mapMarkers: [],
       evidence: ["Conversational greeting — no marine data fetched (ask+suggest)"],
     };
+  }
+
+  // Smalltalk: conversational reply, no data agents ran.
+  if (state.intents.length === 1 && state.intents[0] === "smalltalk") {
+    const { system, prompt } = smalltalkPrompt(state);
+    try {
+      const text = await streamOllama(system, prompt, onToken, { signal: opts?.signal });
+      if (!text) throw new Error("Ollama returned empty response");
+      const translatedText = await translateFromEnglish(text, state.language);
+      return { text: translatedText, mapMarkers: [], evidence: ["Smalltalk — no marine data fetched (conversational)"] };
+    } catch (err) {
+      if (isAbort(err)) throw new Error("cancelled");
+      const text = await translateFromEnglish(smalltalkFallback(), state.language);
+      await onToken(text);
+      return { text, mapMarkers: [], evidence: ["Smalltalk — template fallback (LLM down)"] };
+    }
   }
 
   const mapMarkers = buildMapMarkers(state);
@@ -594,6 +635,20 @@ export async function synthesizeResponse(
       mapMarkers: [],
       evidence: ["Conversational greeting — no marine data fetched (ask+suggest)"],
     };
+  }
+
+  // Smalltalk: conversational reply, no data agents ran.
+  if (state.intents.length === 1 && state.intents[0] === "smalltalk") {
+    const { system, prompt } = smalltalkPrompt(state);
+    try {
+      const text = await streamOllama(system, prompt, () => {});
+      if (!text) throw new Error("Ollama returned empty response");
+      const translatedText = await translateFromEnglish(text, state.language);
+      return { text: translatedText, mapMarkers: [], evidence: ["Smalltalk — no marine data fetched (conversational)"] };
+    } catch {
+      const text = await translateFromEnglish(smalltalkFallback(), state.language);
+      return { text, mapMarkers: [], evidence: ["Smalltalk — template fallback (LLM down)"] };
+    }
   }
 
   const mapMarkers = buildMapMarkers(state);

@@ -7,12 +7,13 @@ import { checkGeofence } from "../agents/geofenceAgent.ts";
 import { optimizeRoute } from "../agents/routeAgent.ts";
 import { synthesizeResponse, synthesizeResponseStream } from "../synthesis/synthesizeResponse.ts";
 import { detectLanguage, translateToEnglish } from "../services/translation.ts";
-import { buildConversationContext } from "../services/conversation.ts";
+import { buildFullContext, touchSession } from "../services/conversation.ts";
 
 const GraphState = Annotation.Root({
   chatHistory: Annotation<QueryState["chatHistory"]>,
   userQuery: Annotation<string>,
   originalQuery: Annotation<string | undefined>,
+  sessionId: Annotation<string | undefined>,
   region: Annotation<QueryState["region"]>,
   timestamp: Annotation<string>,
   intents: Annotation<string[]>,
@@ -93,13 +94,25 @@ function isConversational(intents: string[]): boolean {
   return intents.length === 1 && intents[0] === "greeting";
 }
 
+function isSmalltalk(intents: string[]): boolean {
+  return intents.length === 1 && intents[0] === "smalltalk";
+}
+
+/** Greeting + smalltalk both skip every data agent. */
+function skipsDataAgents(intents: string[]): string | null {
+  if (isConversational(intents)) return "greeting";
+  if (isSmalltalk(intents)) return "smalltalk";
+  return null;
+}
+
 async function callMarineAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
-  if (isConversational(state.intents)) {
-    console.log("[graph] skipMarineAgent (greeting — conversational)");
+  const skipWhy = skipsDataAgents(state.intents);
+  if (skipWhy) {
+    console.log(`[graph] skipMarineAgent (${skipWhy} — conversational)`);
     return {
-      executionTrace: trace(state, "marineDataAgent", "skip_marine_data (greeting)"),
+      executionTrace: trace(state, "marineDataAgent", `skip_marine_data (${skipWhy})`),
     };
   }
   if (!needsMarine(state.intents)) {
@@ -123,10 +136,11 @@ async function callMarineAgentNode(
 async function callWeatherAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
-  if (isConversational(state.intents)) {
-    console.log("[graph] skipWeatherAgent (greeting — conversational)");
+  const skipWhy = skipsDataAgents(state.intents);
+  if (skipWhy) {
+    console.log(`[graph] skipWeatherAgent (${skipWhy} — conversational)`);
     return {
-      executionTrace: trace(state, "weatherRiskAgent", "skip_weather_risk (greeting)"),
+      executionTrace: trace(state, "weatherRiskAgent", `skip_weather_risk (${skipWhy})`),
     };
   }
   console.log("[graph] callWeatherAgent");
@@ -140,10 +154,11 @@ async function callWeatherAgentNode(
 async function callGeofenceAgentNode(
   state: GraphStateType,
 ): Promise<Partial<GraphStateType>> {
-  if (isConversational(state.intents)) {
-    console.log("[graph] skipGeofenceAgent (greeting — conversational)");
+  const skipWhy = skipsDataAgents(state.intents);
+  if (skipWhy) {
+    console.log(`[graph] skipGeofenceAgent (${skipWhy} — conversational)`);
     return {
-      executionTrace: trace(state, "geofenceAgent", "skip_boundaries (greeting)"),
+      executionTrace: trace(state, "geofenceAgent", `skip_boundaries (${skipWhy})`),
     };
   }
   console.log("[graph] callGeofenceAgent");
@@ -186,7 +201,7 @@ async function synthesizeResponseNode(
     routeOptimization: state.routeOptimization,
     regionSource: state.regionSource,
     userQuery: state.userQuery,
-    conversationContext: buildConversationContext(state.chatHistory ?? []),
+    conversationContext: buildFullContext(state.chatHistory ?? [], state.sessionId),
   });
   return {
     finalResponse,
@@ -215,18 +230,24 @@ const workflow = new StateGraph(GraphState)
 
 export const graph = workflow.compile();
 
-export async function runQuery(userQuery: string, chatHistory: { role: string; text: string }[] = [], preferredLanguage: string = "English", currentRegion?: QueryState["region"]): Promise<QueryState> {
-  const result = await graph.invoke({
+export async function runQuery(userQuery: string, chatHistory: { role: string; text: string }[] = [], preferredLanguage: string = "English", currentRegion?: QueryState["region"], sessionId?: string): Promise<QueryState> {
+  const result = (await graph.invoke({
     chatHistory,
     userQuery,
     originalQuery: undefined,
+    sessionId,
     region: currentRegion || { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
     timestamp: new Date().toISOString(),
     intents: [],
     language: preferredLanguage,
     executionTrace: [],
+  })) as QueryState;
+  touchSession(sessionId, {
+    region: result.region,
+    intents: result.intents,
+    answer: result.finalResponse?.text,
   });
-  return result as QueryState;
+  return result;
 }
 
 export interface QueryStreamMeta {
@@ -257,12 +278,14 @@ export async function runQueryStream(
   preferredLanguage: string = "English",
   currentRegion?: QueryState["region"],
   events: QueryStreamEvents = {},
+  sessionId?: string,
 ): Promise<QueryState> {
   throwIfCancelled(events.signal);
   let state: GraphStateType = {
     chatHistory,
     userQuery,
     originalQuery: undefined,
+    sessionId,
     region: currentRegion || { name: "Visakhapatnam", lat: 17.6868, lon: 83.2185 },
     timestamp: new Date().toISOString(),
     intents: [],
@@ -314,7 +337,7 @@ export async function runQueryStream(
       routeOptimization: state.routeOptimization,
       regionSource: state.regionSource,
       userQuery: state.userQuery,
-      conversationContext: buildConversationContext(state.chatHistory ?? []),
+      conversationContext: buildFullContext(state.chatHistory ?? [], state.sessionId),
     },
     async (token) => { if (events.onDelta) await events.onDelta(token); },
     { signal: events.signal },
@@ -325,5 +348,10 @@ export async function runQueryStream(
     executionTrace: trace(state, "synthesisAgent", "synthesize_response"),
   };
   await emitAgent({ executionTrace: state.executionTrace });
+  touchSession(state.sessionId, {
+    region: state.region,
+    intents: state.intents,
+    answer: finalResponse.text,
+  });
   return state as QueryState;
 }

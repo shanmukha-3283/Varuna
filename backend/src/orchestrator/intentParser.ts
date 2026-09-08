@@ -73,8 +73,9 @@ const INTENT_KEYWORDS: Record<string, string[]> = {
   chlorophyll_sst: ["chlorophyll", "sst", "sea surface temperature", "chloro"],
 };
 
-function inferIntents(query: string): string[] {
+function inferIntents(query: string, chatHistory: { role: string; text: string }[] = []): string[] {
   if (isGreeting(query)) return ["greeting"];
+  if (isSmalltalk(query)) return ["smalltalk"];
   const lower = query.toLowerCase();
   const intents: string[] = [];
   for (const [intent, keywords] of Object.entries(INTENT_KEYWORDS)) {
@@ -82,7 +83,32 @@ function inferIntents(query: string): string[] {
       intents.push(intent);
     }
   }
-  return intents.length > 0 ? intents : ["safety_check"];
+  if (intents.length === 0) intents.push("safety_check");
+  // Reference words with prior turns = follow-up: keep the data intents,
+  // but flag it so synthesis leans on the conversation context.
+  if (chatHistory.length > 0 && refersToHistory(lower)) {
+    intents.push("follow_up");
+  }
+  return [...new Set(intents)];
+}
+
+/** Pure smalltalk ("thanks", "who are you", …) — short queries only, so
+ * "help me find fish" still routes to the data agents. */
+export function isSmalltalk(query: string): boolean {
+  const t = query.trim().toLowerCase().replace(/[!.?,]+$/g, "").trim();
+  if (t.length === 0 || t.length > 60) return false;
+  return [
+    /^(thanks|thank you|thankyou|thx|dhanyavadalu|dhanyavad|nandri|shukriya)\b/,
+    /^(ok|okay|alright|great|nice|bye|goodbye|good night)\b/,
+    /who are you/,
+    /what can you do/,
+    /^(help|help me)\b/,
+  ].some((p) => p.test(t));
+}
+
+/** Pronouns / references that point at previous turns. */
+function refersToHistory(lower: string): boolean {
+  return /\b(there|that|those|they|them|it|this|here|tomorrow|day after|next|what about|how about|and then|also|too|again|instead)\b/.test(lower);
 }
 
 /** Pure conversational openers ("hi", "namaste", …) — no data query inside. */
@@ -143,6 +169,10 @@ export async function parseIntent(
   if (isGreeting(userQuery)) {
     return { region: currentRegion, intents: ["greeting"], source: "keyword" };
   }
+  // Pure smalltalk — no LLM, no data agents downstream (graph skips them).
+  if (isSmalltalk(userQuery)) {
+    return { region: currentRegion, intents: ["smalltalk"], source: "keyword" };
+  }
   const explicit = extractExplicitRegion(userQuery);
   const validIntents = [
     "pfz_lookup",
@@ -153,6 +183,8 @@ export async function parseIntent(
     "route_advice",
     "chlorophyll_sst",
     "greeting",
+    "smalltalk",
+    "follow_up",
   ];
 
   // Only the last 2 turns go to the LLM to reduce sticky-history bias.
@@ -169,7 +201,7 @@ ${historyStr}CURRENT QUERY: "${userQuery}"
 Return ONLY valid JSON (no markdown, no explanation) with this exact shape:
 {
   "region": { "name": "string", "lat": number, "lon": number },
-  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst" | "greeting"]
+  "intents": ["pfz_lookup" | "safety_check" | "weather_lookup" | "tide_lookup" | "alert_check" | "route_advice" | "chlorophyll_sst" | "greeting" | "smalltalk" | "follow_up"]
 }
 
 Rules:
@@ -177,6 +209,8 @@ Rules:
 - If CURRENT QUERY names a place, return that place with its real coordinates (do NOT return the current region).
 - region.name should be a real coastal place name
 - intents must be from the allowed list only
+- "smalltalk" ONLY for thanks/bye/who-are-you/what-can-you-do/help with no fishing question inside
+- Add "follow_up" when the query references previous turns (there/that/tomorrow/what about/and then) alongside the data intent
 - Return at least one intent`;
 
   const controller = new AbortController();
@@ -246,7 +280,7 @@ Rules:
     const intents =
       parsed.intents && parsed.intents.length > 0
         ? parsed.intents.filter((i) => validIntents.includes(i))
-        : inferIntents(userQuery);
+        : inferIntents(userQuery, chatHistory);
 
     if (intents.length === 0) intents.push("safety_check");
 
@@ -260,18 +294,18 @@ Rules:
     }
     // Offline path: keyword scan first (explicit wins), geocoder second, else default.
     if (explicit) {
-      return { region: explicit, intents: inferIntents(userQuery), source: "keyword" };
+      return { region: explicit, intents: inferIntents(userQuery, chatHistory), source: "keyword" };
     }
     try {
       const geo = await geocodePlace(userQuery);
       if (geo) {
-        return { region: geo.region, intents: inferIntents(userQuery), source: "geocoder" };
+        return { region: geo.region, intents: inferIntents(userQuery, chatHistory), source: "geocoder" };
       }
     } catch {
       // fall through to keyword/default
     }
     const region = inferRegion(userQuery, currentRegion);
-    const intents = inferIntents(userQuery);
+    const intents = inferIntents(userQuery, chatHistory);
     return { region, intents, source: "fallback" };
   }
 }
