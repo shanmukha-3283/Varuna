@@ -13,6 +13,7 @@ export interface ChatMessage {
   language?: string;
   streaming?: boolean;
   ts?: number;
+  executionTrace?: { agent: string; action: string; elapsedMs?: number }[];
 }
 
 interface ChatPanelProps {
@@ -24,10 +25,10 @@ interface ChatPanelProps {
   onRegenerate: () => void;
   chips: string[];
   preferredLanguage: string;
-  onLanguageChange: (lang: string) => void;
+  liveTrace?: { agent: string; action: string; elapsedMs?: number }[];
 }
 
-export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, chips, preferredLanguage, onLanguageChange }: ChatPanelProps) {
+export default function ChatPanel({ messages, loading, loadingSince, onSend, onStop, onRegenerate, chips, preferredLanguage, liveTrace }: ChatPanelProps) {
   const [draft, setDraft] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const [isListening, setIsListening] = useState(false);
@@ -163,21 +164,13 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
     onSend(q); // sending while loading cancels the in-flight query (see App)
   }
 
+  const isEmpty = messages.length === 0;
+  const isOnlyGreeting = messages.length === 1 && messages[0].role === "assistant" && /^(hi|hello|welcome|namaste|hey)/i.test(messages[0].text.slice(0, 60));
+
   return (
     <section className="chat-panel" aria-label="Chat">
       <div className="chat-header-actions">
-        <select 
-          value={preferredLanguage} 
-          onChange={(e) => onLanguageChange(e.target.value)}
-          className="language-select"
-        >
-          <option value="English">English</option>
-          <option value="Hindi">हिंदी (Hindi)</option>
-          <option value="Telugu">తెలుగు (Telugu)</option>
-          <option value="Tamil">தமிழ் (Tamil)</option>
-          <option value="Bengali">বাংলা (Bengali)</option>
-        </select>
-        <button 
+        <button
           className={`toggle-btn ${readAloud ? 'active' : ''}`}
           onClick={() => {
             setReadAloud(!readAloud);
@@ -188,8 +181,24 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
           {readAloud ? "🔊 Voice On" : "🔈 Voice Off"}
         </button>
       </div>
+
+      {isEmpty || isOnlyGreeting ? (
+        <div className="chat-empty-hero">
+          <div className="hero-brand">◈</div>
+          <h2>Ask me about the sea</h2>
+          <p>Fishing zones, weather, tides, safe routes — just ask.</p>
+          <div className="hero-chips">
+            {chips.map((q) => (
+              <button key={q} type="button" className="hero-chip" onClick={() => submit(q)}>
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <div className="chat-messages">
-        {messages.map((m, i) => (
+        {(isEmpty || isOnlyGreeting) ? null : messages.map((m, i) => (
           <div key={i} className={`bubble bubble-${m.role}`}>
             {m.intents && m.intents.length > 0 && (
               <div className="intent-badges">
@@ -204,6 +213,15 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
               <div className="md">
                 {m.text ? (
                   <Markdown text={m.text} />
+                ) : (m.executionTrace && m.executionTrace.length > 0) || (m.streaming && liveTrace && liveTrace.length > 0) ? (
+                  <div className="agent-steps">
+                    {(m.streaming ? liveTrace : m.executionTrace)!.map((step, si) => (
+                      <span key={si} className="agent-step">
+                        <span className="agent-step-dot" />
+                        <span className="agent-step-label">{step.agent}</span>
+                      </span>
+                    ))}
+                  </div>
                 ) : (
                   <span className="typing-dots" aria-hidden="true"><i /><i /><i /></span>
                 )}
@@ -215,91 +233,60 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
             <div className="msg-actions">
               {m.ts != null && <span className="msg-time">{fmtTime(m.ts)}</span>}
               {m.role === "assistant" && !m.streaming && m.text && (
-                <button
-                  type="button"
-                  className="msg-btn"
-                  onClick={() => copyText(m.text, i)}
-                  title="Copy reply"
-                >
+                <button type="button" className="msg-btn" onClick={() => copyText(m.text, i)} title="Copy reply">
                   {copiedIdx === i ? "✓ Copied" : "⧉ Copy"}
                 </button>
               )}
               {m.role === "assistant" && !m.streaming && !loading && i === messages.length - 1 && i > 0 && (
-                <button
-                  type="button"
-                  className="msg-btn"
-                  onClick={onRegenerate}
-                  title="Regenerate reply"
-                >
+                <button type="button" className="msg-btn" onClick={onRegenerate} title="Regenerate reply">
                   ↻ Regenerate
                 </button>
               )}
-              {m.streaming && (
-                <span className="typing-elapsed">{elapsed}s</span>
-              )}
+              {m.streaming && <span className="typing-elapsed">{elapsed}s</span>}
             </div>
             {m.evidence && m.evidence.length > 0 && (
-              <details className="evidence">
-                <summary>Evidence ({m.evidence.length})</summary>
-                <ul>
-                  {m.evidence.map((e, j) => (
-                    <li key={j}>{e}</li>
-                  ))}
-                </ul>
-              </details>
+              <div className="evidence-cards">
+                {m.evidence.map((e, j) => {
+                  const icon = /INCOIS|PFZ/i.test(e) ? "🛰" : /IMD|wave|wind/i.test(e) ? "🌤" : /Geofence|boundary/i.test(e) ? "🗺" : "📎";
+                  return <span key={j} className="evidence-card">{icon} {e}</span>;
+                })}
+              </div>
             )}
           </div>
         ))}
         <div ref={bottomRef} />
       </div>
 
-      <div className="chat-examples">
-        {chips.map((q) => (
-          <button
-            key={q}
-            type="button"
-            className="chip"
-            onClick={() => submit(q)}
-          >
-            {q}
-          </button>
-        ))}
-      </div>
+      {(isEmpty || isOnlyGreeting) ? null : (
+        <div className="chat-examples">
+          {chips.map((q) => (
+            <button key={q} type="button" className="chip" onClick={() => submit(q)}>
+              {q}
+            </button>
+          ))}
+        </div>
+      )}
 
       <form
         className="chat-input"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(draft);
-        }}
+        onSubmit={(e) => { e.preventDefault(); submit(draft); }}
       >
         <input
           type="text"
           value={draft}
-          placeholder={
-            loading ? "Type a new question to supersede this one…" : "Ask about fishing, safety, weather…"
-          }
+          placeholder={loading ? "Type a new question to supersede this one…" : "Ask about fishing, safety, weather…"}
           onChange={(e) => setDraft(e.target.value)}
           aria-label="Your question"
         />
         {SpeechRecognition && (
-          <button 
-            type="button" 
-            className={`mic-btn ${isListening ? 'listening' : ''}`}
-            onClick={toggleListening}
-            title="Speak"
-          >
+          <button type="button" className={`mic-btn ${isListening ? 'listening' : ''}`} onClick={toggleListening} title="Speak">
             🎤
           </button>
         )}
         {loading ? (
-          <button type="button" className="stop-btn" onClick={onStop} title="Stop generating">
-            ■ Stop
-          </button>
+          <button type="button" className="stop-btn" onClick={onStop} title="Stop generating">■ Stop</button>
         ) : (
-          <button type="submit" disabled={!draft.trim()}>
-            Send
-          </button>
+          <button type="submit" disabled={!draft.trim()}>Send</button>
         )}
       </form>
     </section>

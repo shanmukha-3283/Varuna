@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { CircleMarker, MapContainer, Popup, TileLayer, Polyline, Polygon, Marker, useMapEvents } from "react-leaflet";
+import { useEffect, useState } from "react";
+import { CircleMarker, MapContainer, Popup, TileLayer, Polyline, Polygon, Marker, Tooltip, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { MapMarker, Region } from "../api.ts";
 
@@ -54,16 +54,25 @@ async function reverseName(lat: number, lon: number): Promise<string> {
   }
 }
 
-function MapEvents({ onRegionChange }: { onRegionChange?: (r: Region) => void }) {
+function MapEvents({ onRegionChange, onToast }: { onRegionChange?: (r: Region) => void; onToast?: (msg: string) => void }) {
   useMapEvents({
     click(e) {
       if (!onRegionChange) return;
       const { lat, lng } = e.latlng;
       reverseName(lat, lng).then((name) => {
         onRegionChange({ name, lat, lon: lng });
+        onToast?.(`📍 Location set to ${name}`);
       });
     }
   });
+  return null;
+}
+
+function MapUpdater({ center }: { center: Region }) {
+  const map = useMap();
+  useEffect(() => {
+    map.flyTo([center.lat, center.lon], map.getZoom(), { duration: 0.8 });
+  }, [center.lat, center.lon]);
   return null;
 }
 
@@ -74,6 +83,13 @@ export default function MapView({ region, markers, userLocation, onRegionChange,
   const [results, setResults] = useState<{ name: string; lat: number; lon: number }[]>([]);
   const [locating, setLocating] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   async function locateMe() {
     if (!navigator.geolocation) {
@@ -153,59 +169,76 @@ export default function MapView({ region, markers, userLocation, onRegionChange,
         </ul>
       )}
       {notice && <p className="map-hint">{notice}</p>}
-      <MapContainer
-        key={`${center.lat},${center.lon}`}
-        center={[center.lat, center.lon]}
-        zoom={10}
-        className="map"
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <MapEvents onRegionChange={onRegionChange} />
-        <Polyline positions={IMBL_PALK} pathOptions={{ color: "#dc2626", weight: 2, dashArray: "6 4" }} />
-        <Polyline positions={IMBL_OFFSHORE} pathOptions={{ color: "#dc2626", weight: 2, dashArray: "6 4", opacity: 0.7 }} />
-        <Polygon positions={MANNAR} pathOptions={{ color: "#d97706", weight: 1.5, fillOpacity: 0.08 }} />
-        <Polygon positions={VIZAG_ZONE} pathOptions={{ color: "#0b5fa5", weight: 1, dashArray: "3 4", fillOpacity: 0.04 }} />
-        <Marker
-          position={[center.lat, center.lon]}
-          icon={pinIcon}
-          draggable
-          eventHandlers={{
-            dragend: (e) => {
-              const m = e.target as L.Marker;
-              const { lat, lng } = m.getLatLng();
-              reverseName(+lat.toFixed(4), +lng.toFixed(4)).then((name) => {
-                onRegionChange?.({ name, lat: +lat.toFixed(4), lon: +lng.toFixed(4) });
-              });
-            },
-          }}
+      {toast && <div className="map-toast">{toast}</div>}
+      <div className="map-wrapper">
+        <MapContainer
+          center={[center.lat, center.lon]}
+          zoom={10}
+          className="map"
         >
-          <Popup>{center.name} (query spot — drag me)</Popup>
-        </Marker>
-        {userLocation && (
-          <Marker position={[userLocation.lat, userLocation.lon]} icon={userIcon}>
-            <Popup>You are here ({userLocation.name})</Popup>
+          <TileLayer
+            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+          <MapUpdater center={center} />
+          <MapEvents onRegionChange={onRegionChange} onToast={setToast} />
+          <Polyline positions={IMBL_PALK} pathOptions={{ color: "#dc2626", weight: 3, dashArray: "6 4" }}>
+            <Tooltip sticky className="imbl-tooltip">India–Sri Lanka Maritime Boundary</Tooltip>
+          </Polyline>
+          <Polyline positions={IMBL_OFFSHORE} pathOptions={{ color: "#dc2626", weight: 3, dashArray: "6 4", opacity: 0.7 }}>
+            <Tooltip sticky className="imbl-tooltip">IMBL Offshore</Tooltip>
+          </Polyline>
+          <Polygon positions={MANNAR} pathOptions={{ color: "#d97706", weight: 1.5, fillOpacity: 0.08 }} />
+          <Polygon positions={VIZAG_ZONE} pathOptions={{ color: "#0b5fa5", weight: 1, dashArray: "3 4", fillOpacity: 0.04 }} />
+          <Marker
+            position={[center.lat, center.lon]}
+            icon={pinIcon}
+            draggable
+            eventHandlers={{
+              dragend: (e) => {
+                const m = e.target as L.Marker;
+                const { lat, lng } = m.getLatLng();
+                reverseName(+lat.toFixed(4), +lng.toFixed(4)).then((name) => {
+                  onRegionChange?.({ name, lat: +lat.toFixed(4), lon: +lng.toFixed(4) });
+                  setToast(`📍 Location set to ${name}`);
+                });
+              },
+            }}
+          >
+            <Popup>{center.name} (query spot — drag me)</Popup>
           </Marker>
-        )}
-        {markers.map((m, i) => {
-          const color = markerColor(m.type);
-          return (
-            <CircleMarker
-              key={i}
-              center={[m.lat, m.lon]}
-              radius={m.type === "hazard" ? 10 : m.type === "route" ? 5 : 7}
-              pathOptions={{ color, fillColor: color, fillOpacity: 0.65 }}
-            >
-              <Popup>{m.label}</Popup>
-            </CircleMarker>
-          );
-        })}
-        {routePoints.length > 1 && (
-          <Polyline positions={routePoints} pathOptions={{ color: "#7c3aed", weight: 3, dashArray: "4 4" }} />
-        )}
-      </MapContainer>
+          {userLocation && (
+            <Marker position={[userLocation.lat, userLocation.lon]} icon={userIcon}>
+              <Popup>You are here ({userLocation.name})</Popup>
+            </Marker>
+          )}
+          {markers.map((m, i) => {
+            const color = markerColor(m.type);
+            return (
+              <CircleMarker
+                key={i}
+                center={[m.lat, m.lon]}
+                radius={m.type === "hazard" ? 10 : m.type === "route" ? 5 : 7}
+                pathOptions={{ color, fillColor: color, fillOpacity: 0.65 }}
+              >
+                <Popup>{m.label}</Popup>
+              </CircleMarker>
+            );
+          })}
+          {routePoints.length > 1 && (
+            <Polyline positions={routePoints} pathOptions={{ color: "#7c3aed", weight: 3, dashArray: "4 4" }} />
+          )}
+        </MapContainer>
+        <button
+          type="button"
+          className="map-locate-fab"
+          onClick={locateMe}
+          disabled={locating}
+          title="Locate me"
+        >
+          {locating ? "⏳" : "📍"}
+        </button>
+      </div>
       <div className="map-legend">
         <span><i className="dot dot-region" /> query spot</span>
         <span><i className="dot dot-pfz" /> PFZ</span>

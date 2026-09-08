@@ -45,7 +45,6 @@ function App() {
   const [alertBanner, setAlertBanner] = useState<string | null>(null);
   const [backendUp, setBackendUp] = useState<boolean | null>(null);
   const [dashTab, setDashTab] = useState<"map" | "safety" | "trace">("map");
-  const [regionPulse, setRegionPulse] = useState(0);
   const [liveTrace, setLiveTrace] = useState<TraceEntry[]>([]);
   const seenAlerts = useRef<Set<string>>(new Set());
   const inFlight = useRef<AbortController | null>(null);
@@ -158,10 +157,7 @@ function App() {
         onMeta: (meta) => {
           if (controller.signal.aborted) return;
           if (meta.region) {
-            setCurrentRegion((prev) => {
-              if (prev.name !== meta.region.name) setRegionPulse((n) => n + 1);
-              return meta.region;
-            });
+            setCurrentRegion(() => meta.region);
           }
         },
         onAgent: (entry) => {
@@ -183,10 +179,7 @@ function App() {
       // Auto-sync: the visible pin follows the resolved spot so follow-up
       // queries without a place-name stay in Kakinada (not sticky Vizag).
       if (result.region) {
-        setCurrentRegion((prev) => {
-          if (prev.name !== result.region.name) setRegionPulse((n) => n + 1);
-          return result.region;
-        });
+        setCurrentRegion(() => result.region);
         refreshChips(result.region);
       }
       const viaTag = result.finalResponse?.evidence?.find((e) => e.startsWith("synthesis:")) ?? undefined;
@@ -244,15 +237,25 @@ function App() {
           <div className="brand-mark">◈</div>
           <div>
             <h1>Varuna <span className="brand-sub">ORCA</span></h1>
-            <p>Marine EcOsystem Reasoning with Collaborative Agents · INCOIS + IMD + Open-Meteo</p>
+            <p>Marine EcOsystem Reasoning with Collaborative Agents</p>
           </div>
         </div>
+        <button className="header-location-pill" onClick={() => document.querySelector('.map-panel')?.scrollIntoView({ behavior: 'smooth' })} title="Show on map">
+          🌍 {(latest?.region ?? currentRegion).name}
+        </button>
         <div className="header-meta">
-          <span className={`status-pill ${backendUp === false ? "down" : backendUp ? "up" : "unknown"}`}>
-            {backendUp === false ? "● backend offline" : backendUp ? "● backend live" : "● checking…"}
-          </span>
-          <span className="pill region-pill" key={regionPulse}>📍 {(latest?.region ?? currentRegion).name}</span>
-          <span className="pill">🌐 {preferredLanguage}</span>
+          <select
+            value={preferredLanguage}
+            onChange={(e) => setPreferredLanguage(e.target.value)}
+            className="language-select"
+          >
+            <option value="English">English</option>
+            <option value="Hindi">हिंदी</option>
+            <option value="Telugu">తెలుగు</option>
+            <option value="Tamil">தமிழ்</option>
+            <option value="Bengali">বাংলা</option>
+          </select>
+          <span className={`status-dot ${backendUp === false ? "down" : backendUp ? "up" : "unknown"}`} title={backendUp === false ? "Backend offline" : backendUp ? "Backend live" : "Checking…"} />
         </div>
       </header>
 
@@ -275,7 +278,7 @@ function App() {
           onRegenerate={handleRegenerate}
           chips={chips}
           preferredLanguage={preferredLanguage}
-          onLanguageChange={setPreferredLanguage}
+          liveTrace={liveTrace}
         />
         <div className="side">
           <div className="dash-tabs" role="tablist" aria-label="Dashboard views">
