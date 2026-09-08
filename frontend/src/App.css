@@ -250,12 +250,11 @@
 }
 .hero-chip:hover { border-color: var(--accent); box-shadow: 0 2px 12px -4px rgba(59,130,246,0.25); }
 
-/* Evidence cards (replaces <details> toggle) */
-.evidence-cards { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+/* Evidence cards inside the collapsible sources accordion */
+.evidence-cards { display: flex; flex-direction: column; gap: 6px; padding: 8px 4px; margin-top: 8px; }
 .evidence-card {
-  font-size: 12px; padding: 4px 10px; border-radius: 999px;
-  background: var(--surface-2); border: 1px solid var(--hairline); color: var(--text-muted);
-  white-space: nowrap;
+  font-size: 12px; padding: 6px 10px; border-radius: 6px; line-height: 1.4;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text-muted);
 }
 
 /* Two-phase agent steps indicator */

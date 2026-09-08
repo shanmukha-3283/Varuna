@@ -81,7 +81,7 @@ function App() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const region = latest?.region ?? currentRegion;
+        const region = currentRegion;
         const res = await fetch(`${API_BASE}/api/check_alerts?lat=${region.lat}&lon=${region.lon}`);
         if (!res.ok) return;
         const data = await res.json();
@@ -113,7 +113,7 @@ function App() {
       }
     }, 30000); // Poll every 30 seconds
     return () => clearInterval(interval);
-  }, [latest?.region, currentRegion]);
+  }, [currentRegion]);
 
   function refreshChips(region: { name: string; lat: number; lon: number }) {
     fetch(
@@ -243,7 +243,7 @@ function App() {
           </div>
         </div>
         <button className="header-location-pill" onClick={() => document.querySelector('.map-panel')?.scrollIntoView({ behavior: 'smooth' })} title="Show on map">
-          🌍 {(latest?.region ?? currentRegion).name}
+          🌍 {currentRegion.name}
         </button>
         <div className="header-meta">
           <select
@@ -306,7 +306,7 @@ function App() {
           <div className="dash-panel anim-fade" key={dashTab}>
             {dashTab === "map" && (
               <MapView
-                region={latest?.region ?? currentRegion}
+                region={currentRegion}
                 markers={latest?.finalResponse?.mapMarkers ?? []}
                 userLocation={userLocation}
                 onRegionChange={setCurrentRegion}

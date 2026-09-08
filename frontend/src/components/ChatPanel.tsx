@@ -251,12 +251,15 @@ export default function ChatPanel({ messages, loading, loadingSince, onSend, onS
               {m.streaming && <span className="typing-elapsed">{elapsed}s</span>}
             </div>
             {m.evidence && m.evidence.length > 0 && (
-              <div className="evidence-cards">
-                {m.evidence.map((e, j) => {
-                  const icon = /INCOIS|PFZ/i.test(e) ? "🛰" : /IMD|wave|wind/i.test(e) ? "🌤" : /Geofence|boundary/i.test(e) ? "🗺" : "📎";
-                  return <span key={j} className="evidence-card">{icon} {e}</span>;
-                })}
-              </div>
+              <details className="evidence">
+                <summary>Sources & Productivity Analysis ({m.evidence.length})</summary>
+                <div className="evidence-cards">
+                  {m.evidence.map((e, j) => {
+                    const icon = /INCOIS|PFZ/i.test(e) ? "🛰" : /IMD|wave|wind/i.test(e) ? "🌤" : /Geofence|boundary/i.test(e) ? "🗺" : "📎";
+                    return <span key={j} className="evidence-card">{icon} {e}</span>;
+                  })}
+                </div>
+              </details>
             )}
           </div>
         ))}
